@@ -114,6 +114,12 @@ void Metrics::RecordCacheHit() { ++cache_hits_; }
 
 void Metrics::RecordCacheMiss() { ++cache_misses_; }
 
+void Metrics::RecordCacheEviction() { ++cache_evictions_; }
+
+void Metrics::RecordCacheInvalidation(std::uint64_t count) {
+  cache_invalidations_.fetch_add(count);
+}
+
 std::string Metrics::ToPrometheus() const {
   std::ostringstream output;
   output << "# TYPE blog_http_requests_total counter\n"
@@ -134,7 +140,12 @@ std::string Metrics::ToPrometheus() const {
          << "# TYPE blog_cache_hits_total counter\n"
          << "blog_cache_hits_total " << cache_hits_.load() << "\n"
          << "# TYPE blog_cache_misses_total counter\n"
-         << "blog_cache_misses_total " << cache_misses_.load() << "\n";
+         << "blog_cache_misses_total " << cache_misses_.load() << "\n"
+         << "# TYPE blog_cache_evictions_total counter\n"
+         << "blog_cache_evictions_total " << cache_evictions_.load() << "\n"
+         << "# TYPE blog_cache_invalidations_total counter\n"
+         << "blog_cache_invalidations_total " << cache_invalidations_.load()
+         << "\n";
   return output.str();
 }
 

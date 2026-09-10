@@ -3,6 +3,7 @@
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -24,9 +25,17 @@ int main(int argc, char** argv) {
   try {
     auto config = blog::config::LoadFromEnvironment();
     blog::config::ApplyGrpcCommandLine(config, argc, argv);
-    blog::db::BlogRepository repo(config.mongodb_uri, config.database_name);
+    blog::db::BlogRepository repo(blog::config::MongoConnectionString(config),
+                                  config.database_name);
+    const auto schema = repo.InitializeSchema();
+    if (!schema.ok()) {
+      throw std::runtime_error("database schema initialization failed: " +
+                               schema.message);
+    }
 
-    blog::api::BlogServiceImpl service(repo, config.cache_capacity);
+    blog::api::BlogServiceImpl service(
+        repo, static_cast<std::size_t>(config.cache_capacity),
+        std::chrono::seconds(config.cache_ttl_seconds));
     grpc::ServerBuilder builder;
     builder.AddListeningPort(config.grpc_address,
                              grpc::InsecureServerCredentials());

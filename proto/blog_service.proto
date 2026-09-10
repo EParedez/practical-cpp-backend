@@ -27,6 +27,16 @@ message AllPostsResponse {
   repeated Post posts = 1;
 }
 
+// Bounded, deterministic post-list query.
+message ListPostsRequest {
+  int64 limit = 1;
+  int64 offset = 2;
+  string author = 3;
+  string tag = 4;
+  string published_from = 5;
+  string published_to = 6;
+}
+
 // The Blog service definition.
 service BlogService {
   // Sends a new blog post.
@@ -43,4 +53,7 @@ service BlogService {
 
   // Retrieves all blog posts.
   rpc GetAllPosts(PostResponse) returns (AllPostsResponse);
+
+  // Retrieves a filtered page sorted by published date and ID descending.
+  rpc ListPosts(ListPostsRequest) returns (AllPostsResponse);
 }

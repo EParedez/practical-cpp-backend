@@ -110,3 +110,12 @@ TEST(RRCacheTest, CapacityIsRespected) {
   }
   EXPECT_EQ(hits, 2);  // only 2 entries survive
 }
+
+TEST(RRCacheTest, NonPositiveCapacityDoesNotStore) {
+  RRCache zero(0);
+  zero.put(1, 10);
+  EXPECT_EQ(zero.get(1), -1);
+  RRCache negative(-1);
+  negative.put(1, 10);
+  EXPECT_EQ(negative.get(1), -1);
+}

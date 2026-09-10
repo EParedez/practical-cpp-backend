@@ -30,6 +30,8 @@ class GrpcIntegrationTest : public ::testing::Test {
 
     auto client = repo->pool().acquire();
     (*client)["blog_itest"]["posts"].delete_many({});
+    const auto schema = repo->InitializeSchema();
+    ASSERT_TRUE(schema.ok()) << schema.message;
 
     grpc::ServerBuilder builder;
     builder.AddListeningPort(kServerAddress, grpc::InsecureServerCredentials());
@@ -162,4 +164,30 @@ TEST_F(GrpcIntegrationTest, GetAllPostsReturnsAll) {
   blog::AllPostsResponse response;
   ASSERT_TRUE(stub->GetAllPosts(&ctx, request, &response).ok());
   EXPECT_EQ(response.posts_size(), 3);
+}
+
+TEST_F(GrpcIntegrationTest, ListPostsAppliesFiltersAndBounds) {
+  for (int index = 0; index < 3; ++index) {
+    blog::Post post;
+    post.set_title("Post " + std::to_string(index));
+    post.set_author(index == 2 ? "bob" : "alice");
+    post.add_tags(index == 1 ? "other" : "cpp");
+    post.set_published_date("2026-09-0" + std::to_string(index + 1) +
+                            "T12:00:00Z");
+    grpc::ClientContext add_context;
+    SetDeadline(&add_context);
+    blog::PostResponse add_response;
+    ASSERT_TRUE(stub->AddPost(&add_context, post, &add_response).ok());
+  }
+
+  blog::ListPostsRequest request;
+  request.set_limit(1);
+  request.set_author("alice");
+  request.set_tag("cpp");
+  grpc::ClientContext context;
+  SetDeadline(&context);
+  blog::AllPostsResponse response;
+  ASSERT_TRUE(stub->ListPosts(&context, request, &response).ok());
+  ASSERT_EQ(response.posts_size(), 1);
+  EXPECT_EQ(response.posts(0).title(), "Post 0");
 }

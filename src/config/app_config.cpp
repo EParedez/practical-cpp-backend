@@ -50,6 +50,14 @@ AppConfig LoadFromEnvironment(const EnvironmentReader& reader) {
   AppConfig config;
   AssignString(reader, "MONGODB_URI", &config.mongodb_uri);
   AssignString(reader, "BLOG_DATABASE", &config.database_name);
+  AssignInteger(reader, "MONGO_MIN_POOL_SIZE", 0, 1000,
+                &config.mongo_min_pool_size);
+  AssignInteger(reader, "MONGO_MAX_POOL_SIZE", 1, 1000,
+                &config.mongo_max_pool_size);
+  AssignInteger(reader, "MONGO_SERVER_SELECTION_TIMEOUT_MS", 100, 300'000,
+                &config.mongo_server_selection_timeout_ms);
+  AssignInteger(reader, "MONGO_CONNECT_TIMEOUT_MS", 100, 300'000,
+                &config.mongo_connect_timeout_ms);
   AssignString(reader, "HTTP_HOST", &config.http_host);
   AssignString(reader, "GRPC_ADDRESS", &config.grpc_address);
   AssignString(reader, "GRPC_METRICS_HOST", &config.grpc_metrics_host);
@@ -58,6 +66,8 @@ AppConfig LoadFromEnvironment(const EnvironmentReader& reader) {
                 &config.grpc_metrics_port);
   AssignInteger(reader, "CACHE_CAPACITY", 0, 1'000'000,
                 &config.cache_capacity);
+  AssignInteger(reader, "CACHE_TTL_SECONDS", 1, 86'400,
+                &config.cache_ttl_seconds);
   AssignInteger(reader, "HTTP_READ_TIMEOUT_SECONDS", 1, 3600,
                 &config.http_read_timeout_seconds);
   AssignInteger(reader, "HTTP_WRITE_TIMEOUT_SECONDS", 1, 3600,
@@ -119,6 +129,24 @@ void Validate(const AppConfig& config) {
   if (config.cache_capacity < 0) {
     throw std::invalid_argument("CACHE_CAPACITY must not be negative");
   }
+  if (config.mongo_min_pool_size > config.mongo_max_pool_size) {
+    throw std::invalid_argument(
+        "MONGO_MIN_POOL_SIZE must not exceed MONGO_MAX_POOL_SIZE");
+  }
+}
+
+std::string MongoConnectionString(const AppConfig& config) {
+  std::string uri = config.mongodb_uri;
+  const auto append = [&uri](const std::string& name, int value) {
+    if (uri.find(name + "=") != std::string::npos) return;
+    uri += uri.find('?') == std::string::npos ? '?' : '&';
+    uri += name + "=" + std::to_string(value);
+  };
+  append("minPoolSize", config.mongo_min_pool_size);
+  append("maxPoolSize", config.mongo_max_pool_size);
+  append("serverSelectionTimeoutMS", config.mongo_server_selection_timeout_ms);
+  append("connectTimeoutMS", config.mongo_connect_timeout_ms);
+  return uri;
 }
 
 }  // namespace blog::config

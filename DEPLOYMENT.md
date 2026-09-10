@@ -29,6 +29,10 @@ application services. The HTTP health check uses `/ready`, the gRPC check uses t
 internal metrics listener at `http://blog_grpc:9090/health`, and Nginx starts after
 HTTP is healthy. Port 9090 is not published to the host.
 
+Before opening their listeners, both application processes apply the idempotent
+database migration and verify collection validators and indexes. See
+[Persistence and Schema Management](PERSISTENCE.md).
+
 ```bash
 curl --fail http://localhost:8080/health
 curl --fail http://localhost:8080/ready
@@ -45,6 +49,9 @@ docker compose exec blog_grpc curl --fail http://127.0.0.1:9090/metrics
 Application logs are newline-delimited JSON and include request IDs, operations,
 statuses, and durations. HTTP clients may supply `X-Request-ID`; otherwise the server
 generates one.
+
+Production cache policy and process-local consistency behavior are documented in
+[Production Post Cache](CACHE.md).
 
 ## Smoke Test
 

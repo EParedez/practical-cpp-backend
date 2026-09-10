@@ -2,9 +2,11 @@
 #include <chrono>
 #include <csignal>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
+#include "cache/post_cache.h"
 #include "common/observability.h"
 #include "config/app_config.h"
 #include "db/blog_repository.h"
@@ -22,16 +24,25 @@ int main(int argc, char** argv) {
   try {
     auto config = blog::config::LoadFromEnvironment();
     blog::config::ApplyHttpCommandLine(config, argc, argv);
-    blog::db::BlogRepository repo(config.mongodb_uri, config.database_name);
+    blog::db::BlogRepository repo(blog::config::MongoConnectionString(config),
+                                  config.database_name);
+    const auto schema = repo.InitializeSchema();
+    if (!schema.ok()) {
+      throw std::runtime_error("database schema initialization failed: " +
+                               schema.message);
+    }
 
     httplib::Server server;
+    blog::cache::ThreadSafeLruPostCache cache(
+        static_cast<std::size_t>(config.cache_capacity),
+        std::chrono::seconds(config.cache_ttl_seconds));
     blog::server::HttpServerOptions options;
     options.read_timeout_seconds = config.http_read_timeout_seconds;
     options.write_timeout_seconds = config.http_write_timeout_seconds;
     options.keep_alive_timeout_seconds =
         config.http_keep_alive_timeout_seconds;
     options.keep_alive_max_count = config.http_keep_alive_max_count;
-    blog::server::ConfigureHttpServer(server, repo, options);
+    blog::server::ConfigureHttpServer(server, repo, options, &cache);
 
     std::signal(SIGINT, HandleSignal);
     std::signal(SIGTERM, HandleSignal);

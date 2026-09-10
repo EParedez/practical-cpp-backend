@@ -13,6 +13,12 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 
 option(BUILD_TESTS "Build unit and integration tests" ON)
 option(BUILD_SERVER "Build the standalone HTTP/HTTPS server" ON)
+option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if(ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
 
 find_package(mongocxx REQUIRED)
 find_package(bsoncxx REQUIRED)
@@ -53,9 +59,11 @@ add_custom_target(proto_gen DEPENDS ${PROTO_SRCS} ${GRPC_SRCS})
 add_library(blogcore STATIC
   src/common/observability.cpp
   src/config/app_config.cpp
+  src/model/time_utils.cpp
   src/cache/lru_cache.cpp
   src/cache/lfu_cache.cpp
   src/cache/rr_cache.cpp
+  src/cache/post_cache.cpp
   src/db/blog_repository.cpp
 )
 

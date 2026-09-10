@@ -22,7 +22,7 @@ The project currently provides:
 - CMake, Docker, Docker Compose, Nginx, GitHub Actions, and AWS deployment files.
 
 The project builds successfully in the current development environment. The current
-suite contains 29 unit tests and 14 MongoDB-backed integration tests; all 43 pass.
+suite contains 43 unit tests and 21 MongoDB-backed integration tests; all 64 pass.
 Integration tests require a reachable MongoDB instance and use bounded connection and
 RPC deadlines.
 
@@ -65,7 +65,7 @@ existing behavior.
   - [ ] Zero and negative cache capacities.
   - [ ] LFU values equal to `-1`.
 - [ ] Add compiler warnings for project-owned code.
-- [ ] Add AddressSanitizer and UndefinedBehaviorSanitizer options for local and CI
+- [x] Add AddressSanitizer and UndefinedBehaviorSanitizer options for local and CI
   builds.
 
 ### Acceptance Criteria
@@ -150,8 +150,8 @@ Make the HTTP API standards-compliant, safe to serialize, and directly testable.
 
 ## Phase 3: Configuration, Observability, and Graceful Operation
 
-**Status:** Complete as of 2026-09-10. Cache counters are exposed now and will become
-active when production cache reads are integrated in Phase 6.
+**Status:** Complete as of 2026-09-10. Cache counters are active for HTTP and gRPC
+post reads.
 
 ### Objective
 
@@ -213,21 +213,23 @@ Provide a reproducible, working local deployment using Docker Compose.
 
 ## Phase 5: Persistence Quality and Performance
 
+**Status:** Complete as of 2026-09-10.
+
 ### Objective
 
 Make MongoDB access predictable as data volume and concurrency increase.
 
 ### Work Items
 
-- [ ] Create and verify indexes for unique usernames and common post queries.
-- [ ] Store timestamps as BSON dates instead of unconstrained strings.
-- [ ] Define a schema-validation strategy for users and posts.
-- [ ] Add deterministic sorting and cursor- or page-based pagination.
-- [ ] Add query filters for author, tags, and publication date as required.
-- [ ] Configure pool size and MongoDB timeouts through runtime configuration.
-- [ ] Define whether comments are embedded or separated based on expected growth.
-- [ ] Add database migration or startup-index management with clear versioning.
-- [ ] Add integration tests for duplicate users, malformed documents, indexes, and
+- [x] Create and verify indexes for unique usernames and common post queries.
+- [x] Store timestamps as BSON dates instead of unconstrained strings.
+- [x] Define a schema-validation strategy for users and posts.
+- [x] Add deterministic sorting and cursor- or page-based pagination.
+- [x] Add query filters for author, tags, and publication date as required.
+- [x] Configure pool size and MongoDB timeouts through runtime configuration.
+- [x] Define whether comments are embedded or separated based on expected growth.
+- [x] Add database migration or startup-index management with clear versioning.
+- [x] Add integration tests for duplicate users, malformed documents, indexes, and
   pagination boundaries.
 
 ### Acceptance Criteria
@@ -239,23 +241,25 @@ Make MongoDB access predictable as data volume and concurrency increase.
 
 ## Phase 6: Production Cache Integration
 
+**Status:** Complete as of 2026-09-10.
+
 ### Objective
 
 Replace the demonstration-only integer caches with a cache suitable for blog reads.
 
 ### Work Items
 
-- [ ] Decide whether the educational LRU/LFU/RR implementations remain examples or
+- [x] Decide whether the educational LRU/LFU/RR implementations remain examples or
   become production components.
-- [ ] Introduce a cache interface using post IDs as keys and post DTOs as values.
-- [ ] Remove `-1` sentinel semantics in favor of `std::optional` or a result type.
-- [ ] Reject or safely support zero and negative capacities.
-- [ ] Make the selected cache safe for concurrent HTTP and gRPC handlers.
-- [ ] Integrate cache lookup into `GetPost`.
-- [ ] Invalidate or update entries after post update and deletion.
-- [ ] Define TTL, stale-data behavior, and maximum memory usage.
-- [ ] Expose hit, miss, eviction, and invalidation metrics.
-- [ ] Correct the documented RR complexity or change its data structures to meet the
+- [x] Introduce a cache interface using post IDs as keys and post DTOs as values.
+- [x] Remove `-1` sentinel semantics in favor of `std::optional` or a result type.
+- [x] Reject or safely support zero and negative capacities.
+- [x] Make the selected cache safe for concurrent HTTP and gRPC handlers.
+- [x] Integrate cache lookup into `GetPost`.
+- [x] Invalidate or update entries after post update and deletion.
+- [x] Define TTL, stale-data behavior, and maximum memory usage.
+- [x] Expose hit, miss, eviction, and invalidation metrics.
+- [x] Correct the documented RR complexity or change its data structures to meet the
   intended complexity.
 
 ### Acceptance Criteria

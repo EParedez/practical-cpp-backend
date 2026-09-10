@@ -4,6 +4,10 @@
 
 #include "db/blog_store.h"
 
+namespace blog::cache {
+class PostCache;
+}
+
 namespace blog::server {
 
 struct HttpServerOptions {
@@ -14,6 +18,7 @@ struct HttpServerOptions {
 };
 
 void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
-                         const HttpServerOptions& options = {});
+                         const HttpServerOptions& options = {},
+                         blog::cache::PostCache* cache = nullptr);
 
 }  // namespace blog::server

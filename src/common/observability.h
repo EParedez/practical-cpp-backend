@@ -26,6 +26,8 @@ class Metrics {
   void RecordMongoOperation(bool failed);
   void RecordCacheHit();
   void RecordCacheMiss();
+  void RecordCacheEviction();
+  void RecordCacheInvalidation(std::uint64_t count = 1);
   [[nodiscard]] std::string ToPrometheus() const;
 
  private:
@@ -41,6 +43,8 @@ class Metrics {
   std::atomic<std::uint64_t> mongo_errors_{0};
   std::atomic<std::uint64_t> cache_hits_{0};
   std::atomic<std::uint64_t> cache_misses_{0};
+  std::atomic<std::uint64_t> cache_evictions_{0};
+  std::atomic<std::uint64_t> cache_invalidations_{0};
   std::atomic<std::uint64_t> http_duration_ms_total_{0};
 };
 

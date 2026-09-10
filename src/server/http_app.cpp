@@ -14,6 +14,7 @@
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/types.hpp>
 
+#include "cache/post_cache.h"
 #include "common/observability.h"
 #include "model/blog_validation.h"
 
@@ -184,6 +185,9 @@ blog::db::RepositoryResult<model::Post> ParsePost(
       }
     }
 
+    if (post.published_date.empty()) {
+      post.published_date = model::CurrentUtcTimestamp();
+    }
     if (const auto error = model::ValidatePost(post)) {
       return blog::db::RepositoryResult<model::Post>::Failure(
           blog::db::RepositoryError::kInvalidArgument, *error);
@@ -217,7 +221,8 @@ bool ParseIntegerParameter(const httplib::Request& request,
 }  // namespace
 
 void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
-                         const HttpServerOptions& options) {
+                         const HttpServerOptions& options,
+                         blog::cache::PostCache* cache) {
   server.set_payload_max_length(kMaxRequestBodyLength);
   server.set_read_timeout(options.read_timeout_seconds, 0);
   server.set_write_timeout(options.write_timeout_seconds, 0);
@@ -297,17 +302,34 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
 
   server.Get("/posts", [&store](const httplib::Request& request,
                                 httplib::Response& response) {
-    std::int64_t limit = 0;
-    std::int64_t offset = 0;
-    if (!ParseIntegerParameter(request, "limit", kDefaultPageSize, &limit) ||
-        !ParseIntegerParameter(request, "offset", 0, &offset) || limit < 1 ||
-        limit > kMaximumPageSize || offset < 0) {
+    model::PostQuery query;
+    if (!ParseIntegerParameter(request, "limit", kDefaultPageSize,
+                               &query.limit) ||
+        !ParseIntegerParameter(request, "offset", 0, &query.offset) ||
+        query.limit < 1 || query.limit > kMaximumPageSize ||
+        query.offset < 0) {
       SetError(request, response, 400, "invalid_pagination",
                "limit must be between 1 and 100 and offset must be non-negative");
       return;
     }
+    if (request.has_param("author")) {
+      query.author = request.get_param_value("author");
+    }
+    if (request.has_param("tag")) {
+      query.tag = request.get_param_value("tag");
+    }
+    if (request.has_param("published_from")) {
+      query.published_from = request.get_param_value("published_from");
+    }
+    if (request.has_param("published_to")) {
+      query.published_to = request.get_param_value("published_to");
+    }
+    if (const auto error = model::ValidatePostQuery(query)) {
+      SetError(request, response, 400, "invalid_query", *error);
+      return;
+    }
 
-    const auto result = store.GetAllPosts(limit, offset);
+    const auto result = store.GetAllPosts(query);
     if (!result.ok()) {
       SetRepositoryError(request, response, result.error, result.message);
       return;
@@ -316,14 +338,15 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
     bsoncxx::builder::basic::array items;
     for (const auto& post : *result.value) items.append(PostDocument(post));
     const auto body = make_document(kvp("items", items.view()),
-                                    kvp("limit", limit), kvp("offset", offset),
+                                    kvp("limit", query.limit),
+                                    kvp("offset", query.offset),
                                     kvp("count", static_cast<std::int64_t>(
                                                      result.value->size())));
     SetJson(response, body.view());
   });
 
-  server.Post("/posts", [&store](const httplib::Request& request,
-                                 httplib::Response& response) {
+  server.Post("/posts", [&store, cache](const httplib::Request& request,
+                                        httplib::Response& response) {
     if (!HasJsonContentType(request)) {
       SetError(request, response, 415, "unsupported_media_type",
                "Content-Type must be application/json");
@@ -339,23 +362,34 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
       SetRepositoryError(request, response, result.error, result.message);
       return;
     }
+    parsed.value->id = *result.value;
+    if (cache) cache->Put(*result.value, *parsed.value);
     const auto body = make_document(kvp("id", *result.value));
     SetJson(response, body.view(), 201);
   });
 
-  server.Get("/posts/:id", [&store](const httplib::Request& request,
-                                    httplib::Response& response) {
-    const auto result = store.FindPostById(request.path_params.at("id"));
+  server.Get("/posts/:id", [&store, cache](const httplib::Request& request,
+                                           httplib::Response& response) {
+    const auto& id = request.path_params.at("id");
+    if (cache) {
+      if (const auto cached = cache->Get(id)) {
+        const auto body = PostDocument(*cached);
+        SetJson(response, body.view());
+        return;
+      }
+    }
+    const auto result = store.FindPostById(id);
     if (!result.ok()) {
       SetRepositoryError(request, response, result.error, result.message);
       return;
     }
+    if (cache) cache->Put(id, *result.value);
     const auto body = PostDocument(*result.value);
     SetJson(response, body.view());
   });
 
-  server.Put("/posts/:id", [&store](const httplib::Request& request,
-                                    httplib::Response& response) {
+  server.Put("/posts/:id", [&store, cache](const httplib::Request& request,
+                                           httplib::Response& response) {
     if (!HasJsonContentType(request)) {
       SetError(request, response, 415, "unsupported_media_type",
                "Content-Type must be application/json");
@@ -372,17 +406,19 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
       SetRepositoryError(request, response, result.error, result.message);
       return;
     }
+    if (cache) cache->Put(parsed.value->id, *parsed.value);
     const auto body = PostDocument(*parsed.value);
     SetJson(response, body.view());
   });
 
-  server.Delete("/posts/:id", [&store](const httplib::Request& request,
-                                       httplib::Response& response) {
+  server.Delete("/posts/:id", [&store, cache](const httplib::Request& request,
+                                              httplib::Response& response) {
     const auto result = store.DeletePost(request.path_params.at("id"));
     if (!result.ok()) {
       SetRepositoryError(request, response, result.error, result.message);
       return;
     }
+    if (cache) cache->Invalidate(request.path_params.at("id"));
     const auto body = make_document(kvp("deleted", true),
                                     kvp("id", request.path_params.at("id")));
     SetJson(response, body.view());

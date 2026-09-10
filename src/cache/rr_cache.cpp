@@ -8,24 +8,25 @@ int RRCache::get(int key) {
 }
 
 void RRCache::put(int key, int value) {
+  if (capacity_ <= 0) return;
   if (cache_.find(key) != cache_.end()) {
     cache_[key] = value;
     return;
   }
   if (static_cast<int>(keys_.size()) >= capacity_) {
-    int victim = keys_[std::rand() % keys_.size()];
-    keys_.erase(keys_.begin() + index_of(victim));
+    const auto victim_index =
+        static_cast<std::size_t>(std::rand()) % keys_.size();
+    const int victim = keys_[victim_index];
+    const int last_key = keys_.back();
+    keys_[victim_index] = last_key;
+    key_indexes_[last_key] = victim_index;
+    keys_.pop_back();
+    key_indexes_.erase(victim);
     cache_.erase(victim);
   }
   keys_.push_back(key);
+  key_indexes_[key] = keys_.size() - 1;
   cache_[key] = value;
-}
-
-int RRCache::index_of(int key) {
-  for (size_t i = 0; i < keys_.size(); ++i) {
-    if (keys_[i] == key) return static_cast<int>(i);
-  }
-  return -1;
 }
 
 }  // namespace blog::cache

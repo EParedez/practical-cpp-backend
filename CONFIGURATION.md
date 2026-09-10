@@ -11,20 +11,26 @@ a structured fatal log before the server accepts traffic.
 | --- | --- | --- | --- |
 | `MONGODB_URI` | `mongodb://localhost:27017` | Non-empty MongoDB connection URI | HTTP and gRPC |
 | `BLOG_DATABASE` | `blog` | Non-empty database name | HTTP and gRPC |
+| `MONGO_MIN_POOL_SIZE` | `1` | Integer from 0 to 1000 | HTTP and gRPC |
+| `MONGO_MAX_POOL_SIZE` | `20` | Integer from 1 to 1000 and not below the minimum | HTTP and gRPC |
+| `MONGO_SERVER_SELECTION_TIMEOUT_MS` | `5000` | Integer from 100 to 300,000 | HTTP and gRPC |
+| `MONGO_CONNECT_TIMEOUT_MS` | `5000` | Integer from 100 to 300,000 | HTTP and gRPC |
 | `HTTP_HOST` | `0.0.0.0` | Non-empty bind host | HTTP |
 | `PORT` | `5000` | Integer from 1 to 65535 | HTTP |
 | `GRPC_ADDRESS` | `0.0.0.0:50051` | Non-empty address containing a colon | gRPC |
 | `GRPC_METRICS_HOST` | `0.0.0.0` | Non-empty bind host | gRPC metrics |
 | `GRPC_METRICS_PORT` | `9090` | Integer from 1 to 65535 | gRPC metrics |
-| `CACHE_CAPACITY` | `128` | Integer from 0 to 1,000,000 | gRPC |
+| `CACHE_CAPACITY` | `128` | Integer from 0 to 1,000,000 | HTTP and gRPC |
+| `CACHE_TTL_SECONDS` | `60` | Integer from 1 to 86,400 | HTTP and gRPC |
 | `HTTP_READ_TIMEOUT_SECONDS` | `5` | Integer from 1 to 3600 | HTTP |
 | `HTTP_WRITE_TIMEOUT_SECONDS` | `5` | Integer from 1 to 3600 | HTTP |
 | `HTTP_KEEP_ALIVE_TIMEOUT_SECONDS` | `10` | Integer from 1 to 3600 | HTTP |
 | `HTTP_KEEP_ALIVE_MAX_COUNT` | `20` | Integer from 1 to 10,000 | HTTP |
 | `SHUTDOWN_GRACE_SECONDS` | `10` | Integer from 1 to 300 | HTTP and gRPC |
 
-`CACHE_CAPACITY` configures the existing gRPC cache allocation. Cache-backed reads
-and active hit/miss accounting remain planned for Phase 6.
+`CACHE_CAPACITY` controls each process-local post cache. Setting it to zero disables
+storage while retaining miss accounting. MongoDB URI options explicitly present in
+`MONGODB_URI` take precedence over the corresponding pool and timeout variables.
 
 ## Command-Line Overrides
 

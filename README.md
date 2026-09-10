@@ -9,6 +9,7 @@ en una aplicación real, compilable y testeada: **un servidor de blog**.
 >
 > English documentation: [Improvement Plan](IMPROVEMENT_PLAN.md) ·
 > [HTTP API](API.md) · [Configuration](CONFIGURATION.md) ·
+> [Persistence](PERSISTENCE.md) · [Cache](CACHE.md) ·
 > [Local Docker Deployment](DEPLOYMENT.md) · [Testing Guide](TESTING.md)
 
 ## Stack (según los capítulos del libro)
@@ -32,7 +33,7 @@ PracticalCppBackend/
 ├── docker-compose.yml          # mongo + http + grpc + nginx
 ├── Procfile                    # Elastic Beanstalk
 ├── proto/
-│   └── blog_service.proto      # contrato gRPC (AddPost/GetPost/UpdatePost/DeletePost/GetAllPosts)
+│   └── blog_service.proto      # contrato gRPC CRUD + listado filtrado
 ├── src/
 │   ├── model/blog_models.h     # User, Post, Comment
 │   ├── db/blog_repository.{h,cpp}      # capa MongoDB (CRUD + agregación)
@@ -76,7 +77,7 @@ brew tap mongodb/brew && brew install mongodb-community@8.0
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/grpc;/opt/homebrew/opt/mongo-cxx-driver;/opt/homebrew/opt/bsoncxx;/opt/homebrew/opt/mongo-c-driver;/opt/homebrew/opt/googletest"
 cmake --build build -j8
-ctest --test-dir build --output-on-failure  # 43 tests
+ctest --test-dir build --output-on-failure  # 64 tests
 ```
 
 Nota: si el shell corre bajo Rosetta 2 en un Mac ARM, anteponga `arch -arm64` a los

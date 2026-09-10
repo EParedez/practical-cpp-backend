@@ -17,8 +17,7 @@ class RRCache {
   int capacity_;
   std::vector<int> keys_;
   std::unordered_map<int, int> cache_;
-
-  int index_of(int key);
+  std::unordered_map<int, std::size_t> key_indexes_;
 };
 
 }  // namespace blog::cache

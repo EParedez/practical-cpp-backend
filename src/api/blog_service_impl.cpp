@@ -97,6 +97,9 @@ grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context,
   model.content = post->content();
   model.published_date = post->published_date();
   for (const auto& tag : post->tags()) model.tags.push_back(tag);
+  if (model.published_date.empty()) {
+    model.published_date = model::CurrentUtcTimestamp();
+  }
 
   if (const auto error = blog::model::ValidatePost(model)) {
     return call.Finish(
@@ -107,6 +110,8 @@ grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context,
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
   }
+  model.id = *result.value;
+  cache_.Put(model.id, model);
   response->set_id(*result.value);
   return call.Finish(grpc::Status::OK);
 }
@@ -115,11 +120,16 @@ grpc::Status BlogServiceImpl::GetPost(grpc::ServerContext* context,
                                       const blog::PostResponse* request,
                                       blog::FullPostResponse* response) {
   RpcCall call(context, "GetPost");
+  if (const auto cached = cache_.Get(request->id())) {
+    CopyPost(*cached, response->mutable_post());
+    return call.Finish(grpc::Status::OK);
+  }
   auto result = store_.FindPostById(request->id());
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
   }
 
+  cache_.Put(request->id(), *result.value);
   CopyPost(*result.value, response->mutable_post());
   return call.Finish(grpc::Status::OK);
 }
@@ -140,6 +150,9 @@ grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context,
   model.content = post->content();
   model.published_date = post->published_date();
   for (const auto& tag : post->tags()) model.tags.push_back(tag);
+  if (model.published_date.empty()) {
+    model.published_date = model::CurrentUtcTimestamp();
+  }
 
   if (const auto error = blog::model::ValidatePost(model)) {
     return call.Finish(
@@ -150,6 +163,7 @@ grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context,
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
   }
+  cache_.Put(model.id, model);
   response->set_id(model.id);
   return call.Finish(grpc::Status::OK);
 }
@@ -162,6 +176,7 @@ grpc::Status BlogServiceImpl::DeletePost(grpc::ServerContext* context,
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
   }
+  cache_.Invalidate(request->id());
   response->set_id(request->id());
   return call.Finish(grpc::Status::OK);
 }
@@ -171,6 +186,31 @@ grpc::Status BlogServiceImpl::GetAllPosts(grpc::ServerContext* context,
                                           blog::AllPostsResponse* response) {
   RpcCall call(context, "GetAllPosts");
   auto result = store_.GetAllPosts();
+  if (!result.ok()) {
+    return call.Finish(RepositoryStatus(result.error, result.message));
+  }
+  for (const auto& post : *result.value) {
+    CopyPost(post, response->add_posts());
+  }
+  return call.Finish(grpc::Status::OK);
+}
+
+grpc::Status BlogServiceImpl::ListPosts(grpc::ServerContext* context,
+                                        const blog::ListPostsRequest* request,
+                                        blog::AllPostsResponse* response) {
+  RpcCall call(context, "ListPosts");
+  model::PostQuery query;
+  query.limit = request->limit() == 0 ? 20 : request->limit();
+  query.offset = request->offset();
+  if (!request->author().empty()) query.author = request->author();
+  if (!request->tag().empty()) query.tag = request->tag();
+  if (!request->published_from().empty()) {
+    query.published_from = request->published_from();
+  }
+  if (!request->published_to().empty()) {
+    query.published_to = request->published_to();
+  }
+  auto result = store_.GetAllPosts(query);
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
   }

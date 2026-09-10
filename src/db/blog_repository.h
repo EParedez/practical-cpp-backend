@@ -31,7 +31,8 @@ class BlogRepository final : public BlogStore {
   RepositoryResult<bool> UpdatePost(const model::Post& post) override;
   RepositoryResult<bool> DeletePost(const std::string& id) override;
   RepositoryResult<std::vector<model::Post>> GetAllPosts(
-      std::int64_t limit = 100, std::int64_t offset = 0) override;
+      const model::PostQuery& query = {}) override;
+  RepositoryResult<bool> InitializeSchema();
   // Queries
   RepositoryResult<std::vector<std::pair<std::string, int>>>
   CountPostsPerAuthor() override;

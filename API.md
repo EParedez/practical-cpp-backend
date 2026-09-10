@@ -9,8 +9,8 @@ envelope and include an `X-Request-ID` response header.
 - Author: 1 to 100 UTF-8 bytes.
 - Content: up to 1 MiB of UTF-8 text.
 - Tags: up to 50 tags, each containing 1 to 64 UTF-8 bytes.
-- Published date: up to 64 UTF-8 bytes. It remains a string until the persistence
-  date migration is completed.
+- Published date: canonical UTC `YYYY-MM-DDTHH:MM:SSZ`. If omitted, the server assigns
+  the current UTC time. MongoDB stores it as a native BSON Date.
 - List page size: 1 to 100 posts.
 - Request body: approximately 1 MiB plus 16 KiB of JSON structure overhead.
 - Request headers: up to 50 fields and 16 KiB combined.
@@ -60,8 +60,8 @@ and `503 Service Unavailable` when the database cannot be reached.
 ### `GET /metrics`
 
 Returns Prometheus text-format counters for HTTP and gRPC requests and errors, total
-HTTP request duration, MongoDB operations and errors, and cache hits and misses. Cache
-hit/miss counters remain zero until the production cache is integrated in Phase 6.
+HTTP request duration, MongoDB operations and errors, and cache hits, misses,
+evictions, and invalidations.
 
 Metrics are process-local. The HTTP process exposes them on its public listener. The
 gRPC process exposes the same `/metrics` format on its separate metrics listener,
@@ -123,10 +123,12 @@ Successful response: `200 OK`.
 
 ## List Posts
 
-### `GET /posts?limit=20&offset=0`
+### `GET /posts?limit=20&offset=0&author=writer&tag=cpp`
 
 `limit` defaults to 20 and cannot exceed 100. `offset` defaults to zero and must be
-non-negative.
+non-negative. Optional exact-match `author` and `tag` filters can be combined with
+inclusive `published_from` and `published_to` UTC timestamp bounds. Results are sorted
+by publication date and ID, both descending.
 
 ```json
 {
@@ -171,3 +173,7 @@ The gRPC service uses the same repository result model:
 gRPC clients may send an `x-request-id` metadata value of up to 128 bytes. The server
 returns the accepted or generated ID as initial metadata and includes it in the
 structured request log.
+
+The backward-compatible `GetAllPosts` RPC returns the default bounded page. The
+`ListPosts` RPC accepts `limit`, `offset`, `author`, `tag`, `published_from`, and
+`published_to` fields and uses the same validation, filtering, and ordering as HTTP.

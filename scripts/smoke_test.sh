@@ -45,7 +45,14 @@ compose exec -T blog_http curl --fail --silent \
   "http://127.0.0.1:8080/posts/$post_id" >/dev/null
 compose exec -T blog_http curl --fail --silent \
   'http://127.0.0.1:8080/posts?limit=10&offset=0' >/dev/null
+compose exec -T blog_http curl --fail --silent \
+  'http://127.0.0.1:8080/posts?author=smoke&tag=smoke&published_from=2020-01-01T00%3A00%3A00Z' >/dev/null
 compose exec -T blog_http curl --fail --silent -X DELETE \
   "http://127.0.0.1:8080/posts/$post_id" >/dev/null
+
+metrics="$(compose exec -T blog_http curl --fail --silent \
+  http://127.0.0.1:8080/metrics)"
+grep -Eq 'blog_cache_hits_total [1-9][0-9]*' <<<"$metrics"
+grep -Eq 'blog_cache_invalidations_total [1-9][0-9]*' <<<"$metrics"
 
 echo "Docker Compose smoke test passed."

@@ -60,7 +60,7 @@ class BlogStore {
   virtual RepositoryResult<bool> UpdatePost(const model::Post& post) = 0;
   virtual RepositoryResult<bool> DeletePost(const std::string& id) = 0;
   virtual RepositoryResult<std::vector<model::Post>> GetAllPosts(
-      std::int64_t limit = 100, std::int64_t offset = 0) = 0;
+      const model::PostQuery& query = {}) = 0;
   virtual RepositoryResult<std::vector<std::pair<std::string, int>>>
   CountPostsPerAuthor() = 0;
   virtual RepositoryResult<bool> Ping() = 0;

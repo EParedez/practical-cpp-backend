@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <unordered_set>
 
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
@@ -11,9 +13,12 @@
 #include <bsoncxx/types.hpp>
 #include <mongocxx/exception/exception.hpp>
 #include <mongocxx/options/find.hpp>
+#include <mongocxx/options/index.hpp>
+#include <mongocxx/options/update.hpp>
 
 #include "common/observability.h"
 #include "model/blog_validation.h"
+#include "model/time_utils.h"
 
 using bsoncxx::builder::basic::kvp;
 using bsoncxx::builder::basic::make_array;
@@ -40,6 +45,25 @@ bool IsValidObjectId(const std::string& id) {
          std::all_of(id.begin(), id.end(), [](unsigned char character) {
            return std::isxdigit(character) != 0;
          });
+}
+
+bsoncxx::types::b_date DateValue(const std::string& value) {
+  const auto parsed = model::ParseUtcTimestamp(value);
+  return bsoncxx::types::b_date{
+      parsed.value_or(std::chrono::system_clock::now())};
+}
+
+std::string DateString(const bsoncxx::document::element& element) {
+  if (!element) return {};
+  if (element.type() == bsoncxx::type::k_date) {
+    return model::FormatUtcTimestamp(std::chrono::system_clock::time_point{
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            element.get_date().value)});
+  }
+  if (element.type() == bsoncxx::type::k_string) {
+    return std::string(element.get_string().value);
+  }
+  return {};
 }
 
 template <typename T>
@@ -206,15 +230,19 @@ RepositoryResult<std::string> BlogRepository::AddPost(
       comments.append(make_document(
           kvp("user", comment.user),
           kvp("content", comment.content),
-          kvp("timestamp", comment.timestamp)));
+          kvp("timestamp", DateValue(comment.timestamp))));
     }
+
+    const auto published_date = post.published_date.empty()
+                                    ? model::CurrentUtcTimestamp()
+                                    : post.published_date;
 
     auto result = collection.insert_one(make_document(
         kvp("title", post.title),
         kvp("author", post.author),
         kvp("content", post.content),
         kvp("tags", tags.view()),
-        kvp("published_date", post.published_date),
+        kvp("published_date", DateValue(published_date)),
         kvp("comments", comments.view())));
     metric.Succeed();
     if (!result) {
@@ -283,13 +311,17 @@ RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
     bsoncxx::builder::basic::array tags;
     for (const auto& tag : post.tags) tags.append(tag);
 
+    const auto published_date = post.published_date.empty()
+                                    ? model::CurrentUtcTimestamp()
+                                    : post.published_date;
+
     auto update = make_document(
         kvp("$set", make_document(
                         kvp("title", post.title),
                         kvp("author", post.author),
                         kvp("content", post.content),
                         kvp("tags", tags.view()),
-                        kvp("published_date", post.published_date))));
+                        kvp("published_date", DateValue(published_date)))));
 
     auto result = collection.update_one(filter.view(), update.view());
     metric.Succeed();
@@ -331,11 +363,22 @@ RepositoryResult<bool> BlogRepository::DeletePost(const std::string& id) {
 }
 
 RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
-    std::int64_t limit, std::int64_t offset) {
-  if (limit < 1 || limit > 100 || offset < 0) {
+    const model::PostQuery& query) {
+  if (const auto error = model::ValidatePostQuery(query)) {
+    return RepositoryResult<std::vector<model::Post>>::Failure(
+        RepositoryError::kInvalidArgument, *error);
+  }
+  const auto from = query.published_from
+                        ? model::ParseUtcTimestamp(*query.published_from)
+                        : std::optional<std::chrono::system_clock::time_point>{};
+  const auto to = query.published_to
+                      ? model::ParseUtcTimestamp(*query.published_to)
+                      : std::optional<std::chrono::system_clock::time_point>{};
+  if ((query.published_from && !from) || (query.published_to && !to) ||
+      (from && to && *from > *to)) {
     return RepositoryResult<std::vector<model::Post>>::Failure(
         RepositoryError::kInvalidArgument,
-        "limit must be between 1 and 100 and offset must be non-negative");
+        "published_from and published_to must be ordered UTC timestamps");
   }
   std::vector<model::Post> posts;
   try {
@@ -343,10 +386,21 @@ RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
+    bsoncxx::builder::basic::document filter;
+    if (query.author) filter.append(kvp("author", *query.author));
+    if (query.tag) filter.append(kvp("tags", *query.tag));
+    if (from || to) {
+      bsoncxx::builder::basic::document range;
+      if (from) range.append(kvp("$gte", bsoncxx::types::b_date{*from}));
+      if (to) range.append(kvp("$lte", bsoncxx::types::b_date{*to}));
+      filter.append(kvp("published_date", range.extract()));
+    }
+
     mongocxx::options::find options;
-    options.limit(limit);
-    options.skip(offset);
-    auto cursor = collection.find({}, options);
+    options.limit(query.limit);
+    options.skip(query.offset);
+    options.sort(make_document(kvp("published_date", -1), kvp("_id", -1)));
+    auto cursor = collection.find(filter.view(), options);
     for (const auto& doc : cursor) {
       posts.push_back(DocumentToPost(doc));
     }
@@ -396,6 +450,176 @@ BlogRepository::CountPostsPerAuthor() {
   }
 }
 
+RepositoryResult<bool> BlogRepository::InitializeSchema() {
+  try {
+    MongoOperationMetric metric;
+    auto client = pool_->acquire();
+    auto database = (*client)[db_name_];
+    const auto collection_names = database.list_collection_names();
+    const std::unordered_set<std::string> existing(collection_names.begin(),
+                                                   collection_names.end());
+    if (existing.count("users") == 0) database.create_collection("users");
+    if (existing.count("posts") == 0) database.create_collection("posts");
+    if (existing.count("_schema_migrations") == 0) {
+      database.create_collection("_schema_migrations");
+    }
+
+    auto users = database["users"];
+    auto posts = database["posts"];
+    auto migrations = database["_schema_migrations"];
+
+    if (!migrations.find_one(make_document(kvp("_id", 1)))) {
+      auto legacy_posts = posts.find({});
+      for (const auto& document : legacy_posts) {
+        const auto id = document["_id"];
+        if (!id || id.type() != bsoncxx::type::k_oid) continue;
+        const auto current = DateString(document["published_date"]);
+        const auto value = model::ParseUtcTimestamp(current)
+                               ? current
+                               : model::CurrentUtcTimestamp();
+        bsoncxx::builder::basic::array migrated_comments;
+        if (document["comments"] &&
+            document["comments"].type() == bsoncxx::type::k_array) {
+          for (const auto& element : document["comments"].get_array().value) {
+            if (element.type() != bsoncxx::type::k_document) continue;
+            const auto comment = element.get_document().view();
+            const auto user = comment["user"] &&
+                                      comment["user"].type() ==
+                                          bsoncxx::type::k_string
+                                  ? std::string(
+                                        comment["user"].get_string().value)
+                                  : std::string{};
+            const auto content = comment["content"] &&
+                                         comment["content"].type() ==
+                                             bsoncxx::type::k_string
+                                     ? std::string(
+                                           comment["content"].get_string().value)
+                                     : std::string{};
+            const auto timestamp = DateString(comment["timestamp"]);
+            migrated_comments.append(make_document(
+                kvp("user", user), kvp("content", content),
+                kvp("timestamp", DateValue(timestamp))));
+          }
+        }
+        posts.update_one(
+            make_document(kvp("_id", id.get_oid().value)),
+            make_document(kvp(
+                "$set", make_document(
+                            kvp("published_date", DateValue(value)),
+                            kvp("comments", migrated_comments.extract())))));
+      }
+      mongocxx::options::update upsert;
+      upsert.upsert(true);
+      migrations.update_one(
+          make_document(kvp("_id", 1)),
+          make_document(kvp(
+              "$set", make_document(
+                          kvp("name", "native_post_dates_and_indexes"),
+                          kvp("applied_at", bsoncxx::types::b_date{
+                                                std::chrono::system_clock::now()})))),
+          upsert);
+    }
+
+    mongocxx::options::index unique_username;
+    unique_username.name("users_username_unique");
+    unique_username.unique(true);
+    users.create_index(make_document(kvp("username", 1)), unique_username);
+
+    mongocxx::options::index published_index;
+    published_index.name("posts_published_id");
+    posts.create_index(
+        make_document(kvp("published_date", -1), kvp("_id", -1)),
+        published_index);
+    mongocxx::options::index author_index;
+    author_index.name("posts_author_published");
+    posts.create_index(
+        make_document(kvp("author", 1), kvp("published_date", -1)),
+        author_index);
+    mongocxx::options::index tag_index;
+    tag_index.name("posts_tags_published");
+    posts.create_index(
+        make_document(kvp("tags", 1), kvp("published_date", -1)),
+        tag_index);
+
+    const auto users_validator = bsoncxx::from_json(R"({
+      "collMod":"users",
+      "validator":{"$jsonSchema":{
+        "bsonType":"object",
+        "required":["username","email","password","profiles"],
+        "properties":{
+          "username":{"bsonType":"string","minLength":1,"maxLength":100},
+          "email":{"bsonType":"string","minLength":1,"maxLength":320},
+          "password":{"bsonType":"string"},
+          "profiles":{"bsonType":"array"}
+        }
+      }},
+      "validationLevel":"strict",
+      "validationAction":"error"
+    })");
+    database.run_command(users_validator.view());
+
+    const auto posts_validator = bsoncxx::from_json(R"({
+      "collMod":"posts",
+      "validator":{"$jsonSchema":{
+        "bsonType":"object",
+        "required":["title","author","content","tags","published_date","comments"],
+        "properties":{
+          "title":{"bsonType":"string","minLength":1,"maxLength":200},
+          "author":{"bsonType":"string","minLength":1,"maxLength":100},
+          "content":{"bsonType":"string"},
+          "tags":{"bsonType":"array","maxItems":50,"items":{"bsonType":"string"}},
+          "published_date":{"bsonType":"date"},
+          "comments":{"bsonType":"array","maxItems":100,"items":{
+            "bsonType":"object",
+            "required":["user","content","timestamp"],
+            "properties":{
+              "user":{"bsonType":"string","minLength":1,"maxLength":100},
+              "content":{"bsonType":"string","minLength":1},
+              "timestamp":{"bsonType":"date"}
+            }
+          }}
+        }
+      }},
+      "validationLevel":"strict",
+      "validationAction":"error"
+    })");
+    database.run_command(posts_validator.view());
+
+    std::unordered_set<std::string> index_names;
+    for (const auto& index : users.list_indexes()) {
+      if (index["name"] && index["name"].type() == bsoncxx::type::k_string) {
+        index_names.emplace(index["name"].get_string().value);
+      }
+    }
+    for (const auto& expected : {"users_username_unique"}) {
+      if (index_names.count(expected) == 0) {
+        return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
+                                                "required user index missing");
+      }
+    }
+    index_names.clear();
+    for (const auto& index : posts.list_indexes()) {
+      if (index["name"] && index["name"].type() == bsoncxx::type::k_string) {
+        index_names.emplace(index["name"].get_string().value);
+      }
+    }
+    for (const auto& expected : {"posts_published_id",
+                                 "posts_author_published",
+                                 "posts_tags_published"}) {
+      if (index_names.count(expected) == 0) {
+        return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
+                                                "required post index missing");
+      }
+    }
+    metric.Succeed();
+    return RepositoryResult<bool>::Success(true);
+  } catch (const mongocxx::exception& e) {
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
+  }
+}
+
 RepositoryResult<bool> BlogRepository::Ping() {
   try {
     MongoOperationMetric metric;
@@ -417,9 +641,7 @@ model::Post BlogRepository::DocumentToPost(const bsoncxx::document::view& view) 
   if (view["title"]) post.title = std::string(view["title"].get_string().value);
   if (view["author"]) post.author = std::string(view["author"].get_string().value);
   if (view["content"]) post.content = std::string(view["content"].get_string().value);
-  if (view["published_date"]) {
-    post.published_date = std::string(view["published_date"].get_string().value);
-  }
+  post.published_date = DateString(view["published_date"]);
   if (view["tags"]) {
     for (const auto& tag : view["tags"].get_array().value) {
       post.tags.emplace_back(tag.get_string().value);
@@ -431,7 +653,7 @@ model::Post BlogRepository::DocumentToPost(const bsoncxx::document::view& view) 
       if (c["user"]) comment.user = std::string(c["user"].get_string().value);
       if (c["content"]) comment.content = std::string(c["content"].get_string().value);
       if (c["timestamp"]) {
-        comment.timestamp = std::string(c["timestamp"].get_string().value);
+        comment.timestamp = DateString(c["timestamp"]);
       }
       post.comments.push_back(comment);
     }

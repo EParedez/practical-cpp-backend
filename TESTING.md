@@ -13,7 +13,7 @@ cmake --build build -j4
 
 Unit tests do not require MongoDB. They cover the cache implementations, HTTP routes
 with an in-memory store, centralized configuration, and gRPC service behavior with a
-test store. The current unit suite contains 29 tests.
+test store. The current unit suite contains 43 tests.
 
 ```bash
 ctest --test-dir build -L unit --output-on-failure
@@ -34,7 +34,7 @@ ctest --test-dir build -L integration --output-on-failure --timeout 20
 
 MongoDB connection and server-selection timeouts are bounded so a missing database
 fails quickly. gRPC calls also use finite deadlines. The current integration suite
-contains 14 tests.
+contains 21 tests.
 
 ## Entire Suite
 
@@ -42,7 +42,17 @@ contains 14 tests.
 ctest --test-dir build --output-on-failure --timeout 20
 ```
 
-The complete suite currently contains 43 tests.
+The complete suite currently contains 64 tests.
+
+## Sanitizers
+
+AddressSanitizer and UndefinedBehaviorSanitizer can be enabled in a separate build:
+
+```bash
+cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON
+cmake --build build-sanitize -j4
+ctest --test-dir build-sanitize -L unit --output-on-failure
+```
 
 ## Docker Smoke Test
 
@@ -59,11 +69,13 @@ commands.
 ## Current Test Groups
 
 - Cache unit tests: LRU, LFU, and random replacement behavior.
+- Production post-cache tests: typed values, LRU eviction, disabled capacity, TTL,
+  invalidation, and concurrent access.
 - HTTP unit tests: JSON handling, validation, error mapping, pagination, update, and
   readiness behavior.
 - gRPC service unit tests: repository error mapping and complete post responses.
 - Repository integration tests: MongoDB CRUD, aggregation, validation, and idempotent
-  updates.
+  updates, schema migration, native dates, indexes, filtering, and pagination.
 - gRPC integration tests: end-to-end gRPC and MongoDB behavior.
 
 ## Adding Tests

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -15,6 +16,7 @@
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/types.hpp>
 
+#include "cache/post_cache.h"
 #include "db/blog_store.h"
 #include "server/http_app.h"
 
@@ -58,6 +60,7 @@ class InMemoryBlogStore final : public blog::db::BlogStore {
 
   blog::db::RepositoryResult<blog::model::Post> FindPostById(
       const std::string& id) override {
+    ++find_post_calls;
     if (!available.load()) return Unavailable<blog::model::Post>();
     if (id.size() != 24) {
       return blog::db::RepositoryResult<blog::model::Post>::Failure(
@@ -111,16 +114,27 @@ class InMemoryBlogStore final : public blog::db::BlogStore {
   }
 
   blog::db::RepositoryResult<std::vector<blog::model::Post>> GetAllPosts(
-      std::int64_t limit, std::int64_t offset) override {
+      const blog::model::PostQuery& query) override {
     if (!available.load()) {
       return Unavailable<std::vector<blog::model::Post>>();
     }
     std::vector<blog::model::Post> page;
+    std::vector<blog::model::Post> filtered;
+    std::copy_if(posts.begin(), posts.end(), std::back_inserter(filtered),
+                 [&query](const blog::model::Post& post) {
+                   const bool author_matches =
+                       !query.author || post.author == *query.author;
+                   const bool tag_matches =
+                       !query.tag ||
+                       std::find(post.tags.begin(), post.tags.end(),
+                                 *query.tag) != post.tags.end();
+                   return author_matches && tag_matches;
+                 });
     const auto begin = std::min<std::size_t>(
-        static_cast<std::size_t>(offset), posts.size());
+        static_cast<std::size_t>(query.offset), filtered.size());
     const auto end = std::min<std::size_t>(
-        begin + static_cast<std::size_t>(limit), posts.size());
-    page.insert(page.end(), posts.begin() + begin, posts.begin() + end);
+        begin + static_cast<std::size_t>(query.limit), filtered.size());
+    page.insert(page.end(), filtered.begin() + begin, filtered.begin() + end);
     return blog::db::RepositoryResult<std::vector<blog::model::Post>>::Success(
         std::move(page));
   }
@@ -147,13 +161,14 @@ class InMemoryBlogStore final : public blog::db::BlogStore {
 
   static constexpr const char* kPostId = "0123456789abcdef01234567";
   std::atomic<bool> available{true};
+  std::atomic<int> find_post_calls{0};
   std::vector<blog::model::Post> posts;
 };
 
 class HttpServerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    blog::server::ConfigureHttpServer(server, store);
+    blog::server::ConfigureHttpServer(server, store, {}, &cache);
     port = server.bind_to_any_port("127.0.0.1");
     ASSERT_GT(port, 0);
     server_thread = std::thread([this] { server.listen_after_bind(); });
@@ -170,6 +185,7 @@ class HttpServerTest : public ::testing::Test {
   }
 
   InMemoryBlogStore store;
+  blog::cache::ThreadSafeLruPostCache cache{16, std::chrono::seconds(60)};
   httplib::Server server;
   int port{-1};
   std::thread server_thread;
@@ -255,6 +271,34 @@ TEST_F(HttpServerTest, RejectsPaginationOutsideAllowedRange) {
   EXPECT_NE(result->body.find("invalid_pagination"), std::string::npos);
 }
 
+TEST_F(HttpServerTest, FiltersPostsByAuthorAndTag) {
+  auto cpp = blog::model::Post{};
+  cpp.id = InMemoryBlogStore::kPostId;
+  cpp.title = "C++";
+  cpp.author = "alice";
+  cpp.tags = {"cpp"};
+  auto other = cpp;
+  other.id = "abcdef0123456789abcdef01";
+  other.author = "bob";
+  other.tags = {"other"};
+  store.posts = {cpp, other};
+
+  const auto result = client->Get("/posts?author=alice&tag=cpp");
+  ASSERT_TRUE(result);
+  ASSERT_EQ(result->status, 200);
+  const auto document = bsoncxx::from_json(result->body);
+  EXPECT_EQ(document.view()["count"].get_int32().value, 1);
+  EXPECT_NE(result->body.find("alice"), std::string::npos);
+  EXPECT_EQ(result->body.find("bob"), std::string::npos);
+}
+
+TEST_F(HttpServerTest, RejectsInvalidPublicationDateFilter) {
+  const auto result = client->Get("/posts?published_from=not-a-date");
+  ASSERT_TRUE(result);
+  EXPECT_EQ(result->status, 400);
+  EXPECT_NE(result->body.find("invalid_query"), std::string::npos);
+}
+
 TEST_F(HttpServerTest, RejectsTooManyRequestHeaders) {
   httplib::Headers headers;
   for (int index = 0; index < 51; ++index) {
@@ -284,6 +328,46 @@ TEST_F(HttpServerTest, UpdatesPostWithPut) {
   const auto json = document.view();
   EXPECT_EQ(std::string(json["title"].get_string().value), "after");
   EXPECT_EQ(std::string(json["author"].get_string().value), "new writer");
+}
+
+TEST_F(HttpServerTest, CachesReadsAndRefreshesAfterUpdate) {
+  const auto created = client->Post(
+      "/posts", R"({"title":"before","author":"writer"})",
+      "application/json");
+  ASSERT_TRUE(created);
+  ASSERT_EQ(created->status, 201);
+  const auto path =
+      std::string("/posts/") + InMemoryBlogStore::kPostId;
+
+  ASSERT_EQ(client->Get(path)->status, 200);
+  ASSERT_EQ(client->Get(path)->status, 200);
+  EXPECT_EQ(store.find_post_calls.load(), 0);
+
+  const auto updated = client->Put(
+      path, R"({"title":"after","author":"writer"})",
+      "application/json");
+  ASSERT_TRUE(updated);
+  ASSERT_EQ(updated->status, 200);
+  const auto fetched = client->Get(path);
+  ASSERT_TRUE(fetched);
+  EXPECT_NE(fetched->body.find("after"), std::string::npos);
+  EXPECT_EQ(store.find_post_calls.load(), 0);
+}
+
+TEST_F(HttpServerTest, InvalidatesCachedPostAfterDelete) {
+  ASSERT_EQ(client->Post(
+                "/posts", R"({"title":"cached","author":"writer"})",
+                "application/json")
+                ->status,
+            201);
+  const auto path =
+      std::string("/posts/") + InMemoryBlogStore::kPostId;
+  ASSERT_EQ(client->Get(path)->status, 200);
+  ASSERT_EQ(client->Delete(path)->status, 200);
+  const auto missing = client->Get(path);
+  ASSERT_TRUE(missing);
+  EXPECT_EQ(missing->status, 404);
+  EXPECT_EQ(store.find_post_calls.load(), 1);
 }
 
 TEST_F(HttpServerTest, ReadinessDependsOnDatabase) {

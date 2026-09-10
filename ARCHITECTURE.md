@@ -42,7 +42,7 @@ código de CRUD se escribe una sola vez y se expone por ambos canales.
 | `blog_http_server` | `src/server/http_server_main.cpp` | Proceso del servidor HTTP | `bloghttp` |
 | `blog_grpc_server` | `src/api/grpc_server_main.cpp` | Servidor gRPC en `0.0.0.0:50051` | `blogservice` |
 | `blog_grpc_client` | `src/api/grpc_client_main.cpp` | Cliente de prueba (CRUD completo) | `blogservice` |
-| `unit_tests`, `grpc_unit_tests`, `integration_tests` | `tests/` | 43 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
+| `unit_tests`, `grpc_unit_tests`, `integration_tests` | `tests/` | 64 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
 
 ### Jerarquía de capas (flujo de una petición)
 
@@ -50,7 +50,8 @@ código de CRUD se escribe una sola vez y se expone por ambos canales.
 2. **API layer** — `BlogServiceImpl` valida entrada y traduce mensajes ↔ modelos.
 3. **Datos** — `BlogRepository` encapsula el driver de MongoDB (pool de conexiones).
 4. **Modelo** — `model::User`, `model::Post`, `model::Comment` (structs planos).
-5. **Caché** — `LRUCache`/`LFUCache`/`RRCache` (evolución de políticas; se usa LRU en el servicio).
+5. **Caché** — `ThreadSafeLruPostCache` tipada en producción; las cachés enteras
+   `LRUCache`/`LFUCache`/`RRCache` se conservan como ejemplos educativos.
 
 ## 3. Capa de datos (MongoDB)
 
@@ -129,9 +130,9 @@ incluido en el repo).
 - CMake con `CMAKE_CXX_STANDARD=17`; targets: `blogcore`, `blogservice`, `bloghttp`,
   `blog_grpc_server`, `blog_grpc_client`, `blog_http_server`, `unit_tests`,
   `grpc_unit_tests` e `integration_tests`.
-- 43 tests Google Test: 12 de caché, 3 de configuración, 11 de HTTP, 3 del servicio
-  gRPC, 8 de repositorio (integración Mongo) y 6 de gRPC↔MongoDB (servidor real en
-  proceso).
+- 64 tests Google Test: 13 de cachés educativas, 6 de caché de posts, 4 de
+  configuración, 15 de HTTP, 5 del servicio gRPC, 14 de repositorio (integración
+  Mongo) y 7 de gRPC↔MongoDB (servidor real en proceso).
 - En macOS ARM bajo Rosetta 2, compilar con `arch -arm64 ...`.
 
 ---
@@ -146,12 +147,12 @@ Camino sugerido para evolucionar el proyecto, ordenado por impacto/valor.
   - Implementar JWT/OAuth y un `AuthInterceptor` gRPC (los snippets ya están en el libro).
   - Roles `writer` / `reader` en MongoDB con `db.createUser`.
   - Endpoint `POST /auth/login` en el HTTP server.
-- [ ] **Integrar la caché de verdad en `GetPost`**
+- [x] **Integrar la caché de verdad en `GetPost`**
   - `LRUCache` ya existe y se instancia; conectar los hits/misses al flujo real y
     añadir `Cache-Control`/`ETag` en HTTP.
 - [ ] **Tests de la capa HTTP**
   - Falta `http_server_test.cpp` (hoy solo se testea gRPC y el repo).
-- [ ] **Crear índices reales**
+- [x] **Crear índices reales**
   - `create_index` en `users.username` y `posts.author` al arrancar.
 
 ## Prioridad media
@@ -164,7 +165,7 @@ Camino sugerido para evolucionar el proyecto, ordenado por impacto/valor.
   - Build estático/`-static` o imagen distroless; probar `docker compose up`.
 - [ ] **gRPC con TLS**
   - `grpc::SslServerCredentials` con certificados (generar con `openssl`).
-- [ ] **Paginación y búsqueda**
+- [x] **Paginación y búsqueda**
   - `GetAllPosts` con `limit`/`offset` y filtro por `tag`/`author`.
 
 ## Prioridad baja / exploración
