@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package blog;
+
+// The blog post message type.
+message Post {
+  string id = 1;
+  string title = 2;
+  string author = 3;
+  string content = 4;
+  repeated string tags = 5;
+  string published_date = 6;
+}
+
+// The response message containing the blog post ID.
+message PostResponse {
+  string id = 1;
+}
+
+// The response message containing a full blog post.
+message FullPostResponse {
+  Post post = 1;
+}
+
+// The response message containing all posts.
+message AllPostsResponse {
+  repeated Post posts = 1;
+}
+
+// The Blog service definition.
+service BlogService {
+  // Sends a new blog post.
+  rpc AddPost(Post) returns (PostResponse);
+
+  // Retrieves a blog post.
+  rpc GetPost(PostResponse) returns (FullPostResponse);
+
+  // Updates a blog post.
+  rpc UpdatePost(Post) returns (PostResponse);
+
+  // Deletes a blog post.
+  rpc DeletePost(PostResponse) returns (PostResponse);
+
+  // Retrieves all blog posts.
+  rpc GetAllPosts(PostResponse) returns (AllPostsResponse);
+}

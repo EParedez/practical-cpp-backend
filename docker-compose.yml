@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    # Security (Chapter 10): bind to localhost only.
+    command: ["mongod", "--bind_ip", "127.0.0.1"]
+
+  blog_http:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "8080:8080"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017
+    command: ["./blog_http_server", "0.0.0.0", "8080", "mongodb://mongo:27017"]
+
+  blog_grpc:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "50051:50051"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017
+    command: ["./blog_grpc_server", "0.0.0.0:50051", "mongodb://mongo:27017"]
+
+  nginx:
+    image: nginx:1.27
+    restart: unless-stopped
+    depends_on:
+      - blog_http
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  mongo_data:
