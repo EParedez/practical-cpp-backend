@@ -2,6 +2,7 @@ find_package(GTest REQUIRED)
 
 add_executable(unit_tests
   cache_test.cpp
+  config_test.cpp
   http_server_test.cpp
 )
 

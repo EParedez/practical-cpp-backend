@@ -55,6 +55,18 @@ Response: `200 OK` with the text `ok`.
 Runs a MongoDB ping. It returns `200 OK` when the application is ready to serve data
 and `503 Service Unavailable` when the database cannot be reached.
 
+## Metrics
+
+### `GET /metrics`
+
+Returns Prometheus text-format counters for HTTP and gRPC requests and errors, total
+HTTP request duration, MongoDB operations and errors, and cache hits and misses. Cache
+hit/miss counters remain zero until the production cache is integrated in Phase 6.
+
+Metrics are process-local. The HTTP process exposes them on its public listener. The
+gRPC process exposes the same `/metrics` format on its separate metrics listener,
+which defaults to `0.0.0.0:9090` and remains internal in Docker Compose.
+
 ## Create a Post
 
 ### `POST /posts`
@@ -155,3 +167,7 @@ The gRPC service uses the same repository result model:
 | Duplicate or conflicting value | `ALREADY_EXISTS` |
 | Database unavailable | `UNAVAILABLE` |
 | Unexpected internal error | `INTERNAL` |
+
+gRPC clients may send an `x-request-id` metadata value of up to 128 bytes. The server
+returns the accepted or generated ID as initial metadata and includes it in the
+structured request log.

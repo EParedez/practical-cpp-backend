@@ -22,7 +22,7 @@ The project currently provides:
 - CMake, Docker, Docker Compose, Nginx, GitHub Actions, and AWS deployment files.
 
 The project builds successfully in the current development environment. The current
-suite contains 25 unit tests and 14 MongoDB-backed integration tests; all 39 pass.
+suite contains 29 unit tests and 14 MongoDB-backed integration tests; all 43 pass.
 Integration tests require a reachable MongoDB instance and use bounded connection and
 RPC deadlines.
 
@@ -150,6 +150,9 @@ Make the HTTP API standards-compliant, safe to serialize, and directly testable.
 
 ## Phase 3: Configuration, Observability, and Graceful Operation
 
+**Status:** Complete as of 2026-09-10. Cache counters are exposed now and will become
+active when production cache reads are integrated in Phase 6.
+
 ### Objective
 
 Make runtime behavior configurable and diagnosable across local, container, and cloud
@@ -157,16 +160,16 @@ environments.
 
 ### Work Items
 
-- [ ] Add a centralized configuration type.
-- [ ] Read `MONGODB_URI`, database name, HTTP host/port, gRPC address, cache capacity,
+- [x] Add a centralized configuration type.
+- [x] Read `MONGODB_URI`, database name, HTTP host/port, gRPC address, cache capacity,
   and timeout values from environment variables.
-- [ ] Keep command-line arguments only as documented overrides, if needed.
-- [ ] Validate configuration at startup and fail with actionable messages.
-- [ ] Add structured logging with severity, timestamp, request ID, operation, status,
+- [x] Keep command-line arguments only as documented overrides, if needed.
+- [x] Validate configuration at startup and fail with actionable messages.
+- [x] Add structured logging with severity, timestamp, request ID, operation, status,
   and duration.
-- [ ] Do not log passwords, authorization tokens, or full sensitive request bodies.
-- [ ] Add graceful shutdown for HTTP and gRPC servers.
-- [ ] Add basic metrics for request counts, latency, errors, MongoDB operations, and
+- [x] Do not log passwords, authorization tokens, or full sensitive request bodies.
+- [x] Add graceful shutdown for HTTP and gRPC servers.
+- [x] Add basic metrics for request counts, latency, errors, MongoDB operations, and
   cache hits/misses.
 
 ### Acceptance Criteria
@@ -178,25 +181,27 @@ environments.
 
 ## Phase 4: Docker and Local Deployment
 
+**Status:** Complete as of 2026-09-10.
+
 ### Objective
 
 Provide a reproducible, working local deployment using Docker Compose.
 
 ### Work Items
 
-- [ ] Allow MongoDB to listen on the Compose network while avoiding unnecessary host
+- [x] Allow MongoDB to listen on the Compose network while avoiding unnecessary host
   exposure.
-- [ ] Change Nginx upstreams from `localhost` to the Compose service name
+- [x] Change Nginx upstreams from `localhost` to the Compose service name
   `blog_http:8080`.
-- [ ] Add MongoDB, HTTP, and gRPC health checks.
-- [ ] Use health-based dependency conditions or application-level retry/backoff.
-- [ ] Remove the obsolete Compose `version` field.
-- [ ] Avoid building the same application image separately for each service.
-- [ ] Pin base images and important dependencies to reviewed versions or digests.
-- [ ] Run application containers as a non-root user.
-- [ ] Add a `.dockerignore` file.
-- [ ] Verify runtime library packaging and keep the final image minimal.
-- [ ] Add a smoke test that starts Compose and exercises health, create, read, update,
+- [x] Add MongoDB, HTTP, and gRPC health checks.
+- [x] Use health-based dependency conditions or application-level retry/backoff.
+- [x] Remove the obsolete Compose `version` field.
+- [x] Avoid building the same application image separately for each service.
+- [x] Pin base images and important dependencies to reviewed versions or digests.
+- [x] Run application containers as a non-root user.
+- [x] Add a `.dockerignore` file.
+- [x] Verify runtime library packaging and keep the final image minimal.
+- [x] Add a smoke test that starts Compose and exercises health, create, read, update,
   list, and delete operations.
 
 ### Acceptance Criteria
@@ -334,7 +339,7 @@ Provide accurate English documentation that reflects the implemented system.
   copies until the English versions are accepted.
 - [ ] Mark planned features as planned rather than implemented.
 - [ ] Document HTTP and gRPC contracts with request and response examples.
-- [ ] Document configuration variables, defaults, constraints, and precedence.
+- [x] Document configuration variables, defaults, constraints, and precedence.
 - [ ] Document local development, tests, Docker Compose, troubleshooting, security,
   and deployment.
 - [ ] Record important architectural decisions in short ADRs under `docs/adr/`.

@@ -1,43 +1,71 @@
-version: "3.9"
+x-app-environment: &app-environment
+  MONGODB_URI: mongodb://mongo:27017
+  BLOG_DATABASE: blog
+  CACHE_CAPACITY: "128"
+  SHUTDOWN_GRACE_SECONDS: "10"
 
 services:
   mongo:
     image: mongo:8.0
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    # Security (Chapter 10): bind to localhost only.
-    command: ["mongod", "--bind_ip", "127.0.0.1"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   blog_http:
+    image: practical-cpp-backend:local
     build: .
     restart: unless-stopped
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017
-    command: ["./blog_http_server", "0.0.0.0", "8080", "mongodb://mongo:27017"]
+      <<: *app-environment
+      HTTP_HOST: 0.0.0.0
+      PORT: "8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   blog_grpc:
-    build: .
+    image: practical-cpp-backend:local
     restart: unless-stopped
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
+      blog_http:
+        condition: service_started
     ports:
       - "50051:50051"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017
-    command: ["./blog_grpc_server", "0.0.0.0:50051", "mongodb://mongo:27017"]
+      <<: *app-environment
+      GRPC_ADDRESS: 0.0.0.0:50051
+      GRPC_METRICS_HOST: 0.0.0.0
+      GRPC_METRICS_PORT: "9090"
+    command: ["./blog_grpc_server"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   nginx:
     image: nginx:1.27
     restart: unless-stopped
     depends_on:
-      - blog_http
+      blog_http:
+        condition: service_healthy
     ports:
       - "80:80"
     volumes:

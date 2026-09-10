@@ -12,6 +12,7 @@
 #include <mongocxx/exception/exception.hpp>
 #include <mongocxx/options/find.hpp>
 
+#include "common/observability.h"
 #include "model/blog_validation.h"
 
 using bsoncxx::builder::basic::kvp;
@@ -21,6 +22,18 @@ using bsoncxx::builder::basic::make_document;
 namespace blog::db {
 
 namespace {
+
+class MongoOperationMetric {
+ public:
+  ~MongoOperationMetric() {
+    observability::Metrics::Instance().RecordMongoOperation(!succeeded_);
+  }
+
+  void Succeed() { succeeded_ = true; }
+
+ private:
+  bool succeeded_{false};
+};
 
 bool IsValidObjectId(const std::string& id) {
   return id.size() == 24 &&
@@ -60,6 +73,7 @@ RepositoryResult<bool> BlogRepository::CreateUser(const model::User& user) {
         RepositoryError::kInvalidArgument, "username and email are required");
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
 
@@ -74,6 +88,7 @@ RepositoryResult<bool> BlogRepository::CreateUser(const model::User& user) {
         kvp("email", user.email),
         kvp("password", user.password),
         kvp("profiles", profiles.view())));
+    metric.Succeed();
     if (!result || result->result().inserted_count() != 1) {
       return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
                                               "user was not inserted");
@@ -93,11 +108,13 @@ RepositoryResult<model::User> BlogRepository::FindUserByUsername(
         RepositoryError::kInvalidArgument, "username is required");
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
 
     auto filter = make_document(kvp("username", username));
     auto maybe = collection.find_one(filter.view());
+    metric.Succeed();
     if (!maybe) {
       return RepositoryResult<model::User>::Failure(
           RepositoryError::kNotFound, "user not found");
@@ -123,6 +140,7 @@ RepositoryResult<bool> BlogRepository::UpdateUserEmail(
         RepositoryError::kInvalidArgument, "username and email are required");
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
 
@@ -131,6 +149,7 @@ RepositoryResult<bool> BlogRepository::UpdateUserEmail(
         kvp("$set", make_document(kvp("email", email))));
 
     auto result = collection.update_one(filter.view(), update.view());
+    metric.Succeed();
     if (!result || result->matched_count() == 0) {
       return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
                                               "user not found");
@@ -149,11 +168,13 @@ RepositoryResult<bool> BlogRepository::DeleteUser(const std::string& username) {
                                             "username is required");
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
 
     auto filter = make_document(kvp("username", username));
     auto result = collection.delete_one(filter.view());
+    metric.Succeed();
     if (!result || result->deleted_count() == 0) {
       return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
                                               "user not found");
@@ -173,6 +194,7 @@ RepositoryResult<std::string> BlogRepository::AddPost(
         RepositoryError::kInvalidArgument, *error);
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
@@ -194,6 +216,7 @@ RepositoryResult<std::string> BlogRepository::AddPost(
         kvp("tags", tags.view()),
         kvp("published_date", post.published_date),
         kvp("comments", comments.view())));
+    metric.Succeed();
     if (!result) {
       return RepositoryResult<std::string>::Failure(
           RepositoryError::kInternal, "post was not inserted");
@@ -220,11 +243,13 @@ RepositoryResult<model::Post> BlogRepository::FindPostById(
         RepositoryError::kInvalidArgument, "invalid post id");
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
     auto filter = make_document(kvp("_id", bsoncxx::oid{id}));
     auto maybe = collection.find_one(filter.view());
+    metric.Succeed();
     if (!maybe) {
       return RepositoryResult<model::Post>::Failure(
           RepositoryError::kNotFound, "post not found");
@@ -249,6 +274,7 @@ RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
         RepositoryError::kInvalidArgument, *error);
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
@@ -266,6 +292,7 @@ RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
                         kvp("published_date", post.published_date))));
 
     auto result = collection.update_one(filter.view(), update.view());
+    metric.Succeed();
     if (!result || result->matched_count() == 0) {
       return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
                                               "post not found");
@@ -284,11 +311,13 @@ RepositoryResult<bool> BlogRepository::DeletePost(const std::string& id) {
                                             "invalid post id");
   }
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
     auto filter = make_document(kvp("_id", bsoncxx::oid{id}));
     auto result = collection.delete_one(filter.view());
+    metric.Succeed();
     if (!result || result->deleted_count() == 0) {
       return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
                                               "post not found");
@@ -310,6 +339,7 @@ RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
   }
   std::vector<model::Post> posts;
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
@@ -320,6 +350,7 @@ RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
     for (const auto& doc : cursor) {
       posts.push_back(DocumentToPost(doc));
     }
+    metric.Succeed();
     return RepositoryResult<std::vector<model::Post>>::Success(
         std::move(posts));
   } catch (const mongocxx::exception& e) {
@@ -333,6 +364,7 @@ RepositoryResult<std::vector<std::pair<std::string, int>>>
 BlogRepository::CountPostsPerAuthor() {
   std::vector<std::pair<std::string, int>> result;
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
@@ -354,6 +386,7 @@ BlogRepository::CountPostsPerAuthor() {
       if (view["count"]) count = view["count"].get_int32().value;
       result.emplace_back(author, count);
     }
+    metric.Succeed();
     return RepositoryResult<std::vector<std::pair<std::string, int>>>::Success(
         std::move(result));
   } catch (const mongocxx::exception& e) {
@@ -365,9 +398,11 @@ BlogRepository::CountPostsPerAuthor() {
 
 RepositoryResult<bool> BlogRepository::Ping() {
   try {
+    MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto command = make_document(kvp("ping", 1));
     (*client)[db_name_].run_command(command.view());
+    metric.Succeed();
     return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
     return MongoFailure<bool>(e);

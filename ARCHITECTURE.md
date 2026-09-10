@@ -42,7 +42,7 @@ código de CRUD se escribe una sola vez y se expone por ambos canales.
 | `blog_http_server` | `src/server/http_server_main.cpp` | Proceso del servidor HTTP | `bloghttp` |
 | `blog_grpc_server` | `src/api/grpc_server_main.cpp` | Servidor gRPC en `0.0.0.0:50051` | `blogservice` |
 | `blog_grpc_client` | `src/api/grpc_client_main.cpp` | Cliente de prueba (CRUD completo) | `blogservice` |
-| `unit_tests`, `grpc_unit_tests`, `integration_tests` | `tests/` | 39 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
+| `unit_tests`, `grpc_unit_tests`, `integration_tests` | `tests/` | 43 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
 
 ### Jerarquía de capas (flujo de una petición)
 
@@ -116,7 +116,7 @@ incluido en el repo).
 
 ## 7. Edge y despliegue
 
-- **Nginx** (`deploy/nginx/`): reverse proxy → `localhost:8080`; load balancer
+- **Nginx** (`deploy/nginx/`): reverse proxy → `blog_http:8080`; load balancer
   round-robin/least_conn/ip_hash; HTTPS con headers de seguridad y rate limiting.
 - **Docker** (`Dockerfile` multi-stage + `docker-compose.yml`): mongo + http + grpc + nginx.
 - **AWS** (`deploy/aws/beanstalk.config` + `Procfile`): Elastic Beanstalk arranca
@@ -129,8 +129,9 @@ incluido en el repo).
 - CMake con `CMAKE_CXX_STANDARD=17`; targets: `blogcore`, `blogservice`, `bloghttp`,
   `blog_grpc_server`, `blog_grpc_client`, `blog_http_server`, `unit_tests`,
   `grpc_unit_tests` e `integration_tests`.
-- 39 tests Google Test: 12 de caché, 10 de HTTP, 3 del servicio gRPC, 8 de repositorio
-  (integración Mongo) y 6 de gRPC↔MongoDB (servidor real en proceso).
+- 43 tests Google Test: 12 de caché, 3 de configuración, 11 de HTTP, 3 del servicio
+  gRPC, 8 de repositorio (integración Mongo) y 6 de gRPC↔MongoDB (servidor real en
+  proceso).
 - En macOS ARM bajo Rosetta 2, compilar con `arch -arm64 ...`.
 
 ---
@@ -155,11 +156,11 @@ Camino sugerido para evolucionar el proyecto, ordenado por impacto/valor.
 
 ## Prioridad media
 
-- [ ] **Configuración por variables de entorno**
+- [x] **Configuración por variables de entorno**
   - `MONGODB_URI`, `PORT`, `GRPC_PORT`, capacidad de caché.
-- [ ] **Logging estructurado**
+- [x] **Logging estructurado**
   - Logs JSON (spdlog o glog) con request-id y tiempos de respuesta.
-- [ ] **Dockerfile de producción pulido**
+- [x] **Dockerfile de producción pulido**
   - Build estático/`-static` o imagen distroless; probar `docker compose up`.
 - [ ] **gRPC con TLS**
   - `grpc::SslServerCredentials` con certificados (generar con `openssl`).

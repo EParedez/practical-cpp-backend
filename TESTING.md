@@ -12,7 +12,8 @@ cmake --build build -j4
 ## Unit Tests
 
 Unit tests do not require MongoDB. They cover the cache implementations, HTTP routes
-with an in-memory store, and gRPC service behavior with a test store.
+with an in-memory store, centralized configuration, and gRPC service behavior with a
+test store. The current unit suite contains 29 tests.
 
 ```bash
 ctest --test-dir build -L unit --output-on-failure
@@ -32,13 +33,28 @@ ctest --test-dir build -L integration --output-on-failure --timeout 20
 ```
 
 MongoDB connection and server-selection timeouts are bounded so a missing database
-fails quickly. gRPC calls also use finite deadlines.
+fails quickly. gRPC calls also use finite deadlines. The current integration suite
+contains 14 tests.
 
 ## Entire Suite
 
 ```bash
 ctest --test-dir build --output-on-failure --timeout 20
 ```
+
+The complete suite currently contains 43 tests.
+
+## Docker Smoke Test
+
+With Docker running, validate the production-like local topology and the full HTTP
+CRUD flow:
+
+```bash
+./scripts/smoke_test.sh
+```
+
+See [Local Docker Deployment](DEPLOYMENT.md) for lifecycle and troubleshooting
+commands.
 
 ## Current Test Groups
 

@@ -1,0 +1,11 @@
+.git
+.github
+.agents
+.codex
+.jolli
+.gemini
+.claude
+.cursor
+build*
+*.log
+.DS_Store

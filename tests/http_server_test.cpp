@@ -297,4 +297,17 @@ TEST_F(HttpServerTest, ReadinessDependsOnDatabase) {
   EXPECT_EQ(result->status, 503);
 }
 
+TEST_F(HttpServerTest, ExposesPrometheusMetrics) {
+  const auto health = client->Get("/health");
+  ASSERT_TRUE(health);
+  ASSERT_EQ(health->status, 200);
+
+  const auto metrics = client->Get("/metrics");
+  ASSERT_TRUE(metrics);
+  EXPECT_EQ(metrics->status, 200);
+  EXPECT_NE(metrics->body.find("blog_http_requests_total"), std::string::npos);
+  EXPECT_NE(metrics->body.find("blog_mongo_operations_total"),
+            std::string::npos);
+}
+
 }  // namespace

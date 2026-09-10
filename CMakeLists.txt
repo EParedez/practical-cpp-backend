@@ -51,6 +51,8 @@ add_custom_target(proto_gen DEPENDS ${PROTO_SRCS} ${GRPC_SRCS})
 
 # --- Core library (cache + db + models) ----------------------------------
 add_library(blogcore STATIC
+  src/common/observability.cpp
+  src/config/app_config.cpp
   src/cache/lru_cache.cpp
   src/cache/lfu_cache.cpp
   src/cache/rr_cache.cpp

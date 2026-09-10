@@ -8,8 +8,8 @@ namespace blog::api {
 
 class BlogServiceImpl final : public blog::BlogService::Service {
  public:
-  explicit BlogServiceImpl(blog::db::BlogStore& store)
-      : store_(store), cache_(128) {}
+  explicit BlogServiceImpl(blog::db::BlogStore& store, int cache_capacity = 128)
+      : store_(store), cache_(cache_capacity) {}
 
   grpc::Status AddPost(grpc::ServerContext* context,
                        const blog::Post* post,

@@ -14,6 +14,7 @@
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/types.hpp>
 
+#include "common/observability.h"
 #include "model/blog_validation.h"
 
 using bsoncxx::builder::basic::kvp;
@@ -71,10 +72,13 @@ void SetError(const httplib::Request& request, httplib::Response& response,
               int status, const std::string& code,
               const std::string& message) {
   const auto request_id = RequestId(request);
+  const auto response_request_id = response.get_header_value("X-Request-ID");
+  const auto effective_request_id =
+      response_request_id.empty() ? request_id : response_request_id;
   const auto body = make_document(kvp(
       "error", make_document(kvp("code", code), kvp("message", message),
-                             kvp("request_id", request_id))));
-  response.set_header("X-Request-ID", request_id);
+                             kvp("request_id", effective_request_id))));
+  response.set_header("X-Request-ID", effective_request_id);
   SetJson(response, body.view(), status);
 }
 
@@ -212,14 +216,18 @@ bool ParseIntegerParameter(const httplib::Request& request,
 
 }  // namespace
 
-void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store) {
+void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
+                         const HttpServerOptions& options) {
   server.set_payload_max_length(kMaxRequestBodyLength);
-  server.set_read_timeout(5, 0);
-  server.set_write_timeout(5, 0);
-  server.set_keep_alive_timeout(10);
-  server.set_keep_alive_max_count(20);
+  server.set_read_timeout(options.read_timeout_seconds, 0);
+  server.set_write_timeout(options.write_timeout_seconds, 0);
+  server.set_keep_alive_timeout(options.keep_alive_timeout_seconds);
+  server.set_keep_alive_max_count(options.keep_alive_max_count);
   server.set_pre_routing_handler(
       [](const httplib::Request& request, httplib::Response& response) {
+        const auto request_id = RequestId(request);
+        response.set_header("X-Request-ID", request_id);
+        observability::Metrics::Instance().BeginHttpRequest(request_id);
         std::size_t combined_length = 0;
         for (const auto& [name, value] : request.headers) {
           combined_length += name.size() + value.size();
@@ -232,6 +240,20 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store) {
         }
         return httplib::Server::HandlerResponse::Unhandled;
       });
+  server.set_logger([](const httplib::Request& request,
+                       const httplib::Response& response) {
+    auto request_id = response.get_header_value("X-Request-ID");
+    if (request_id.empty()) request_id = RequestId(request);
+    const auto duration_ms = observability::Metrics::Instance().EndHttpRequest(
+        request_id, response.status);
+    observability::Log(
+        response.status >= 500 ? "error" : "info", "http_request",
+        {{"request_id", request_id},
+         {"method", request.method},
+         {"target", request.target},
+         {"status", std::to_string(response.status)},
+         {"duration_ms", std::to_string(duration_ms)}});
+  });
   server.set_exception_handler(
       [](const httplib::Request& request, httplib::Response& response,
          std::exception_ptr) {
@@ -265,6 +287,12 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store) {
     }
     const auto body = make_document(kvp("status", "ready"));
     SetJson(response, body.view());
+  });
+
+  server.Get("/metrics", [](const httplib::Request&,
+                            httplib::Response& response) {
+    response.set_content(observability::Metrics::Instance().ToPrometheus(),
+                         "text/plain; version=0.0.4");
   });
 
   server.Get("/posts", [&store](const httplib::Request& request,

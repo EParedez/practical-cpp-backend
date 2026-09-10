@@ -8,7 +8,8 @@ en una aplicación real, compilable y testeada: **un servidor de blog**.
 > Documentos: **[Arquitectura y Next Steps](ARCHITECTURE.md)** · [README](#practical-c-backend-programming)
 >
 > English documentation: [Improvement Plan](IMPROVEMENT_PLAN.md) ·
-> [HTTP API](API.md) · [Testing Guide](TESTING.md)
+> [HTTP API](API.md) · [Configuration](CONFIGURATION.md) ·
+> [Local Docker Deployment](DEPLOYMENT.md) · [Testing Guide](TESTING.md)
 
 ## Stack (según los capítulos del libro)
 
@@ -75,7 +76,7 @@ brew tap mongodb/brew && brew install mongodb-community@8.0
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/grpc;/opt/homebrew/opt/mongo-cxx-driver;/opt/homebrew/opt/bsoncxx;/opt/homebrew/opt/mongo-c-driver;/opt/homebrew/opt/googletest"
 cmake --build build -j8
-ctest --test-dir build --output-on-failure  # 39 tests
+ctest --test-dir build --output-on-failure  # 43 tests
 ```
 
 Nota: si el shell corre bajo Rosetta 2 en un Mac ARM, anteponga `arch -arm64` a los
@@ -99,9 +100,12 @@ comandos de build para evitar errores de arquitectura.
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/health` | health check |
+| GET | `/ready` | database-aware readiness check |
+| GET | `/metrics` | Prometheus metrics |
 | GET | `/posts` | lista posts |
 | POST | `/posts` | crea post (`title`, `author`, `content`) |
 | GET | `/posts/:id` | obtiene post |
+| PUT | `/posts/:id` | reemplaza post |
 | DELETE | `/posts/:id` | elimina post |
 | GET | `/stats/posts-per-author` | agregación MongoDB `$group/$sum` |
 
@@ -122,6 +126,9 @@ y HTTPS con rate limiting y cabeceras de seguridad.
 docker compose up --build
 # HTTP:  http://localhost:8080   (vía Nginx: http://localhost/)
 # gRPC:  localhost:50051
+
+# Verificación aislada de toda la pila y del flujo CRUD
+./scripts/smoke_test.sh
 ```
 
 ## AWS (Elastic Beanstalk)
