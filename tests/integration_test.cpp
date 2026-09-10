@@ -2,6 +2,7 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -12,8 +13,14 @@
 
 namespace {
 
-const char* kServerAddress = "0.0.0.0:50052";
-const char* kMongoUri = "mongodb://localhost:27017";
+const char* kServerAddress = "127.0.0.1:50052";
+const char* kMongoUri =
+    "mongodb://localhost:27017/?serverSelectionTimeoutMS=2000&connectTimeoutMS=2000";
+
+void SetDeadline(grpc::ClientContext* context) {
+  context->set_deadline(std::chrono::system_clock::now() +
+                        std::chrono::seconds(5));
+}
 
 class GrpcIntegrationTest : public ::testing::Test {
  protected:
@@ -54,16 +61,17 @@ TEST_F(GrpcIntegrationTest, AddPostPersistsToMongoDB) {
   post.set_author("tester");
 
   grpc::ClientContext ctx;
+  SetDeadline(&ctx);
   blog::PostResponse response;
   grpc::Status status = stub->AddPost(&ctx, post, &response);
 
   ASSERT_TRUE(status.ok());
   ASSERT_FALSE(response.id().empty());
 
-  auto maybe = repo->FindPostById(response.id());
-  ASSERT_TRUE(maybe.has_value());
-  EXPECT_EQ(maybe->title, "Test Title");
-  EXPECT_EQ(maybe->author, "tester");
+    auto maybe = repo->FindPostById(response.id());
+    ASSERT_TRUE(maybe.ok()) << maybe.message;
+    EXPECT_EQ(maybe.value->title, "Test Title");
+    EXPECT_EQ(maybe.value->author, "tester");
 }
 
 TEST_F(GrpcIntegrationTest, GetPostReturnsFullPost) {
@@ -73,10 +81,12 @@ TEST_F(GrpcIntegrationTest, GetPostReturnsFullPost) {
   post.set_author("tester");
 
   grpc::ClientContext ctx_add;
+  SetDeadline(&ctx_add);
   blog::PostResponse add_response;
   ASSERT_TRUE(stub->AddPost(&ctx_add, post, &add_response).ok());
 
   grpc::ClientContext ctx_get;
+  SetDeadline(&ctx_get);
   blog::PostResponse request;
   request.set_id(add_response.id());
   blog::FullPostResponse full_response;
@@ -89,6 +99,7 @@ TEST_F(GrpcIntegrationTest, GetPostReturnsFullPost) {
 
 TEST_F(GrpcIntegrationTest, GetMissingPostReturnsNotFound) {
   grpc::ClientContext ctx;
+  SetDeadline(&ctx);
   blog::PostResponse request;
   request.set_id("000000000000000000000000");  // non-existent ObjectId
   blog::FullPostResponse response;
@@ -103,6 +114,7 @@ TEST_F(GrpcIntegrationTest, AddPostRejectsEmptyAuthor) {
   post.set_content("Content");
 
   grpc::ClientContext ctx;
+  SetDeadline(&ctx);
   blog::PostResponse response;
   grpc::Status status = stub->AddPost(&ctx, post, &response);
 
@@ -116,16 +128,19 @@ TEST_F(GrpcIntegrationTest, DeletePostRemovesFromDatabase) {
   post.set_content("content");
 
   grpc::ClientContext ctx_add;
+  SetDeadline(&ctx_add);
   blog::PostResponse add_response;
   ASSERT_TRUE(stub->AddPost(&ctx_add, post, &add_response).ok());
 
   grpc::ClientContext ctx_del;
+  SetDeadline(&ctx_del);
   blog::PostResponse request;
   request.set_id(add_response.id());
   blog::PostResponse del_response;
   ASSERT_TRUE(stub->DeletePost(&ctx_del, request, &del_response).ok());
 
-  EXPECT_FALSE(repo->FindPostById(add_response.id()).has_value());
+  EXPECT_EQ(repo->FindPostById(add_response.id()).error,
+            blog::db::RepositoryError::kNotFound);
 }
 
 TEST_F(GrpcIntegrationTest, GetAllPostsReturnsAll) {
@@ -136,11 +151,13 @@ TEST_F(GrpcIntegrationTest, GetAllPostsReturnsAll) {
     post.set_content("content");
 
     grpc::ClientContext ctx;
+    SetDeadline(&ctx);
     blog::PostResponse response;
     ASSERT_TRUE(stub->AddPost(&ctx, post, &response).ok());
   }
 
   grpc::ClientContext ctx;
+  SetDeadline(&ctx);
   blog::PostResponse request;
   blog::AllPostsResponse response;
   ASSERT_TRUE(stub->GetAllPosts(&ctx, request, &response).ok());

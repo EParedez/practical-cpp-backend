@@ -38,10 +38,11 @@ código de CRUD se escribe una sola vez y se expone por ambos canales.
 |------------|-----------|-----------------|--------------|
 | `blogcore` (lib estática) | `src/db`, `src/cache`, `src/model` | Modelos, acceso a MongoDB, cachés | `mongo::mongocxx_shared` |
 | `blogservice` (lib) | `src/api` + código generado | Implementación de los RPC gRPC | `blogcore`, `gRPC::grpc++`, `protobuf` |
-| `blog_http_server` | `src/server/http_server_main.cpp` | API REST sobre MongoDB | `blogcore`, `blogservice`, cpp-httplib |
+| `bloghttp` (lib) | `src/server/http_app.cpp` | Rutas, validación y respuestas HTTP | `blogcore`, cpp-httplib |
+| `blog_http_server` | `src/server/http_server_main.cpp` | Proceso del servidor HTTP | `bloghttp` |
 | `blog_grpc_server` | `src/api/grpc_server_main.cpp` | Servidor gRPC en `0.0.0.0:50051` | `blogservice` |
 | `blog_grpc_client` | `src/api/grpc_client_main.cpp` | Cliente de prueba (CRUD completo) | `blogservice` |
-| `run_tests` | `tests/` | 24 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
+| `unit_tests`, `grpc_unit_tests`, `integration_tests` | `tests/` | 39 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
 
 ### Jerarquía de capas (flujo de una petición)
 
@@ -125,10 +126,11 @@ incluido en el repo).
 
 ## 8. Build y tests
 
-- CMake con `CMAKE_CXX_STANDARD=17`; targets: `blogcore`, `blogservice`,
-  `blog_grpc_server`, `blog_grpc_client`, `blog_http_server`, `run_tests`.
-- 24 tests Google Test: 12 de caché (unitarios), 6 de repositorio (integración Mongo),
-  6 de gRPC↔MongoDB (servidor real en proceso).
+- CMake con `CMAKE_CXX_STANDARD=17`; targets: `blogcore`, `blogservice`, `bloghttp`,
+  `blog_grpc_server`, `blog_grpc_client`, `blog_http_server`, `unit_tests`,
+  `grpc_unit_tests` e `integration_tests`.
+- 39 tests Google Test: 12 de caché, 10 de HTTP, 3 del servicio gRPC, 8 de repositorio
+  (integración Mongo) y 6 de gRPC↔MongoDB (servidor real en proceso).
 - En macOS ARM bajo Rosetta 2, compilar con `arch -arm64 ...`.
 
 ---
@@ -185,7 +187,7 @@ cd ~/Desktop/PracticalCppBackend
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/grpc;/opt/homebrew/opt/mongo-cxx-driver;/opt/homebrew/opt/bsoncxx;/opt/homebrew/opt/mongo-c-driver;/opt/homebrew/opt/googletest"
 arch -arm64 cmake --build build -j8          # solo si estás bajo Rosetta
-./build/tests/run_tests
+ctest --test-dir build --output-on-failure
 ./build/blog_http_server 0.0.0.0 8080 &       # API REST
 ./build/blog_grpc_server 0.0.0.0:50051 &      # API gRPC
 ./build/blog_grpc_client localhost:50051      # prueba el flujo completo

@@ -2,14 +2,14 @@
 
 #include "blog_service.grpc.pb.h"
 #include "cache/lru_cache.h"
-#include "db/blog_repository.h"
+#include "db/blog_store.h"
 
 namespace blog::api {
 
 class BlogServiceImpl final : public blog::BlogService::Service {
  public:
-  explicit BlogServiceImpl(blog::db::BlogRepository& repo)
-      : repo_(repo), cache_(128) {}
+  explicit BlogServiceImpl(blog::db::BlogStore& store)
+      : store_(store), cache_(128) {}
 
   grpc::Status AddPost(grpc::ServerContext* context,
                        const blog::Post* post,
@@ -32,7 +32,7 @@ class BlogServiceImpl final : public blog::BlogService::Service {
                            blog::AllPostsResponse* response) override;
 
  private:
-  blog::db::BlogRepository& repo_;
+  blog::db::BlogStore& store_;
   blog::cache::LRUCache cache_;
 };
 

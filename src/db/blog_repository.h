@@ -1,9 +1,7 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <string>
-#include <vector>
 
 #include <bsoncxx/document/value.hpp>
 #include <mongocxx/collection.hpp>
@@ -11,28 +9,33 @@
 #include <mongocxx/instance.hpp>
 #include <mongocxx/pool.hpp>
 
-#include "model/blog_models.h"
+#include "db/blog_store.h"
 
 namespace blog::db {
-class BlogRepository {
+class BlogRepository final : public BlogStore {
  public:
   explicit BlogRepository(const std::string& connection_string,
                           const std::string& db_name = "blog");
 
   // Users
-  bool CreateUser(const model::User& user);
-  std::optional<model::User> FindUserByUsername(const std::string& username);
-  bool UpdateUserEmail(const std::string& username, const std::string& email);
-  bool DeleteUser(const std::string& username);
+  RepositoryResult<bool> CreateUser(const model::User& user) override;
+  RepositoryResult<model::User> FindUserByUsername(
+      const std::string& username) override;
+  RepositoryResult<bool> UpdateUserEmail(const std::string& username,
+                                          const std::string& email) override;
+  RepositoryResult<bool> DeleteUser(const std::string& username) override;
 
   // Posts
-  std::string AddPost(const model::Post& post);
-  std::optional<model::Post> FindPostById(const std::string& id);
-  bool UpdatePost(const model::Post& post);
-  bool DeletePost(const std::string& id);
-  std::vector<model::Post> GetAllPosts();
+  RepositoryResult<std::string> AddPost(const model::Post& post) override;
+  RepositoryResult<model::Post> FindPostById(const std::string& id) override;
+  RepositoryResult<bool> UpdatePost(const model::Post& post) override;
+  RepositoryResult<bool> DeletePost(const std::string& id) override;
+  RepositoryResult<std::vector<model::Post>> GetAllPosts(
+      std::int64_t limit = 100, std::int64_t offset = 0) override;
   // Queries
-  std::vector<std::pair<std::string, int>> CountPostsPerAuthor();
+  RepositoryResult<std::vector<std::pair<std::string, int>>>
+  CountPostsPerAuthor() override;
+  RepositoryResult<bool> Ping() override;
 
   // Exposes the connection pool (used by tests and tools).
   mongocxx::pool& pool() { return *pool_; }

@@ -92,12 +92,17 @@ add_executable(blog_grpc_client
 target_link_libraries(blog_grpc_client PRIVATE blogservice)
 
 # --- HTTP server executable ----------------------------------------------
+add_library(bloghttp
+  src/server/http_app.cpp
+)
+target_link_libraries(bloghttp PUBLIC blogcore)
+target_include_directories(bloghttp PUBLIC src/server src)
+
 if(BUILD_SERVER)
   add_executable(blog_http_server
     src/server/http_server_main.cpp
   )
-  target_link_libraries(blog_http_server PRIVATE blogcore blogservice)
-  target_include_directories(blog_http_server PRIVATE src/server)
+  target_link_libraries(blog_http_server PRIVATE bloghttp)
 endif()
 
 # --- Tests ----------------------------------------------------------------

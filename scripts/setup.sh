@@ -3,7 +3,7 @@
 # Installs dependencies (macOS Homebrew), configures and builds, and runs tests.
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 echo "==> Checking for Homebrew..."
 if ! command -v brew >/dev/null 2>&1; then
@@ -29,7 +29,7 @@ echo "==> Building..."
 cmake --build build -j"$(sysctl -n hw.ncpu)"
 
 echo "==> Running tests..."
-./build/tests/run_tests
+ctest --test-dir build --output-on-failure
 
 echo ""
 echo "Setup complete. Start servers with:"

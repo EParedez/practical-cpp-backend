@@ -16,6 +16,9 @@ build*/
 .idea/
 *.swp
 
+# Local Jolli state
+.jolli/
+
 # OS
 .DS_Store
 

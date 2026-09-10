@@ -1,17 +1,50 @@
 #include "db/blog_repository.h"
 
+#include <algorithm>
+#include <cctype>
+
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/exception/exception.hpp>
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/oid.hpp>
 #include <bsoncxx/types.hpp>
 #include <mongocxx/exception/exception.hpp>
+#include <mongocxx/options/find.hpp>
+
+#include "model/blog_validation.h"
 
 using bsoncxx::builder::basic::kvp;
 using bsoncxx::builder::basic::make_array;
 using bsoncxx::builder::basic::make_document;
 
 namespace blog::db {
+
+namespace {
+
+bool IsValidObjectId(const std::string& id) {
+  return id.size() == 24 &&
+         std::all_of(id.begin(), id.end(), [](unsigned char character) {
+           return std::isxdigit(character) != 0;
+         });
+}
+
+template <typename T>
+RepositoryResult<T> MongoFailure(const mongocxx::exception& error) {
+  if (error.code().value() == 11000) {
+    return RepositoryResult<T>::Failure(RepositoryError::kConflict,
+                                        "duplicate database value");
+  }
+  return RepositoryResult<T>::Failure(RepositoryError::kUnavailable,
+                                      error.what());
+}
+
+template <typename T>
+RepositoryResult<T> BsonFailure(const bsoncxx::exception& error) {
+  return RepositoryResult<T>::Failure(RepositoryError::kInternal, error.what());
+}
+
+}  // namespace
 
 BlogRepository::BlogRepository(const std::string& connection_string,
                                const std::string& db_name)
@@ -21,7 +54,11 @@ BlogRepository::BlogRepository(const std::string& connection_string,
   pool_ = std::make_unique<mongocxx::pool>(mongocxx::uri{connection_string});
 }
 
-bool BlogRepository::CreateUser(const model::User& user) {
+RepositoryResult<bool> BlogRepository::CreateUser(const model::User& user) {
+  if (user.username.empty() || user.email.empty()) {
+    return RepositoryResult<bool>::Failure(
+        RepositoryError::kInvalidArgument, "username and email are required");
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
@@ -37,37 +74,54 @@ bool BlogRepository::CreateUser(const model::User& user) {
         kvp("email", user.email),
         kvp("password", user.password),
         kvp("profiles", profiles.view())));
-    return result && result->result().inserted_count() == 1;
+    if (!result || result->result().inserted_count() != 1) {
+      return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
+                                              "user was not inserted");
+    }
+    return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
-    std::cerr << "CreateUser error: " << e.what() << std::endl;
-    return false;
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
   }
 }
 
-std::optional<model::User> BlogRepository::FindUserByUsername(
+RepositoryResult<model::User> BlogRepository::FindUserByUsername(
     const std::string& username) {
+  if (username.empty()) {
+    return RepositoryResult<model::User>::Failure(
+        RepositoryError::kInvalidArgument, "username is required");
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
 
     auto filter = make_document(kvp("username", username));
     auto maybe = collection.find_one(filter.view());
-    if (!maybe) return std::nullopt;
+    if (!maybe) {
+      return RepositoryResult<model::User>::Failure(
+          RepositoryError::kNotFound, "user not found");
+    }
 
     auto view = maybe->view();
     model::User user;
     user.username = username;
     if (view["email"]) user.email = std::string(view["email"].get_string().value);
     if (view["password"]) user.password = std::string(view["password"].get_string().value);
-    return user;
+    return RepositoryResult<model::User>::Success(std::move(user));
   } catch (const mongocxx::exception& e) {
-    std::cerr << "FindUserByUsername error: " << e.what() << std::endl;
-    return std::nullopt;
+    return MongoFailure<model::User>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<model::User>(e);
   }
 }
 
-bool BlogRepository::UpdateUserEmail(const std::string& username,
-                                     const std::string& email) {
+RepositoryResult<bool> BlogRepository::UpdateUserEmail(
+    const std::string& username, const std::string& email) {
+  if (username.empty() || email.empty()) {
+    return RepositoryResult<bool>::Failure(
+        RepositoryError::kInvalidArgument, "username and email are required");
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
@@ -77,28 +131,47 @@ bool BlogRepository::UpdateUserEmail(const std::string& username,
         kvp("$set", make_document(kvp("email", email))));
 
     auto result = collection.update_one(filter.view(), update.view());
-    return result && result->modified_count() == 1;
+    if (!result || result->matched_count() == 0) {
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
+                                              "user not found");
+    }
+    return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
-    std::cerr << "UpdateUserEmail error: " << e.what() << std::endl;
-    return false;
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
   }
 }
 
-bool BlogRepository::DeleteUser(const std::string& username) {
+RepositoryResult<bool> BlogRepository::DeleteUser(const std::string& username) {
+  if (username.empty()) {
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
+                                            "username is required");
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["users"];
 
     auto filter = make_document(kvp("username", username));
     auto result = collection.delete_one(filter.view());
-    return result && result->deleted_count() == 1;
+    if (!result || result->deleted_count() == 0) {
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
+                                              "user not found");
+    }
+    return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
-    std::cerr << "DeleteUser error: " << e.what() << std::endl;
-    return false;
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
   }
 }
 
-std::string BlogRepository::AddPost(const model::Post& post) {
+RepositoryResult<std::string> BlogRepository::AddPost(
+    const model::Post& post) {
+  if (const auto error = model::ValidatePost(post)) {
+    return RepositoryResult<std::string>::Failure(
+        RepositoryError::kInvalidArgument, *error);
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
@@ -121,34 +194,60 @@ std::string BlogRepository::AddPost(const model::Post& post) {
         kvp("tags", tags.view()),
         kvp("published_date", post.published_date),
         kvp("comments", comments.view())));
-    if (!result) return "";
+    if (!result) {
+      return RepositoryResult<std::string>::Failure(
+          RepositoryError::kInternal, "post was not inserted");
+    }
 
     auto id_view = result->inserted_id();
-    if (id_view.type() != bsoncxx::type::k_oid) return "";
-    return id_view.get_oid().value.to_string();
+    if (id_view.type() != bsoncxx::type::k_oid) {
+      return RepositoryResult<std::string>::Failure(
+          RepositoryError::kInternal, "inserted post has no ObjectId");
+    }
+    return RepositoryResult<std::string>::Success(
+        id_view.get_oid().value.to_string());
   } catch (const mongocxx::exception& e) {
-    std::cerr << "AddPost error: " << e.what() << std::endl;
-    return "";
+    return MongoFailure<std::string>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<std::string>(e);
   }
 }
 
-std::optional<model::Post> BlogRepository::FindPostById(const std::string& id) {
+RepositoryResult<model::Post> BlogRepository::FindPostById(
+    const std::string& id) {
+  if (!IsValidObjectId(id)) {
+    return RepositoryResult<model::Post>::Failure(
+        RepositoryError::kInvalidArgument, "invalid post id");
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
     auto filter = make_document(kvp("_id", bsoncxx::oid{id}));
     auto maybe = collection.find_one(filter.view());
-    if (!maybe) return std::nullopt;
+    if (!maybe) {
+      return RepositoryResult<model::Post>::Failure(
+          RepositoryError::kNotFound, "post not found");
+    }
 
-    return DocumentToPost(maybe->view());
+    return RepositoryResult<model::Post>::Success(
+        DocumentToPost(maybe->view()));
   } catch (const mongocxx::exception& e) {
-    std::cerr << "FindPostById error: " << e.what() << std::endl;
-    return std::nullopt;
+    return MongoFailure<model::Post>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<model::Post>(e);
   }
 }
 
-bool BlogRepository::UpdatePost(const model::Post& post) {
+RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
+  if (!IsValidObjectId(post.id)) {
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
+                                            "invalid post id");
+  }
+  if (const auto error = model::ValidatePost(post)) {
+    return RepositoryResult<bool>::Failure(
+        RepositoryError::kInvalidArgument, *error);
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
@@ -161,48 +260,77 @@ bool BlogRepository::UpdatePost(const model::Post& post) {
     auto update = make_document(
         kvp("$set", make_document(
                         kvp("title", post.title),
+                        kvp("author", post.author),
                         kvp("content", post.content),
-                        kvp("tags", tags.view()))));
+                        kvp("tags", tags.view()),
+                        kvp("published_date", post.published_date))));
 
     auto result = collection.update_one(filter.view(), update.view());
-    return result && result->modified_count() == 1;
+    if (!result || result->matched_count() == 0) {
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
+                                              "post not found");
+    }
+    return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
-    std::cerr << "UpdatePost error: " << e.what() << std::endl;
-    return false;
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
   }
 }
 
-bool BlogRepository::DeletePost(const std::string& id) {
+RepositoryResult<bool> BlogRepository::DeletePost(const std::string& id) {
+  if (!IsValidObjectId(id)) {
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
+                                            "invalid post id");
+  }
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
     auto filter = make_document(kvp("_id", bsoncxx::oid{id}));
     auto result = collection.delete_one(filter.view());
-    return result && result->deleted_count() == 1;
+    if (!result || result->deleted_count() == 0) {
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
+                                              "post not found");
+    }
+    return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
-    std::cerr << "DeletePost error: " << e.what() << std::endl;
-    return false;
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
   }
 }
 
-std::vector<model::Post> BlogRepository::GetAllPosts() {
+RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
+    std::int64_t limit, std::int64_t offset) {
+  if (limit < 1 || limit > 100 || offset < 0) {
+    return RepositoryResult<std::vector<model::Post>>::Failure(
+        RepositoryError::kInvalidArgument,
+        "limit must be between 1 and 100 and offset must be non-negative");
+  }
   std::vector<model::Post> posts;
   try {
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
-    auto cursor = collection.find({});
+    mongocxx::options::find options;
+    options.limit(limit);
+    options.skip(offset);
+    auto cursor = collection.find({}, options);
     for (const auto& doc : cursor) {
       posts.push_back(DocumentToPost(doc));
     }
+    return RepositoryResult<std::vector<model::Post>>::Success(
+        std::move(posts));
   } catch (const mongocxx::exception& e) {
-    std::cerr << "GetAllPosts error: " << e.what() << std::endl;
+    return MongoFailure<std::vector<model::Post>>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<std::vector<model::Post>>(e);
   }
-  return posts;
 }
 
-std::vector<std::pair<std::string, int>> BlogRepository::CountPostsPerAuthor() {
+RepositoryResult<std::vector<std::pair<std::string, int>>>
+BlogRepository::CountPostsPerAuthor() {
   std::vector<std::pair<std::string, int>> result;
   try {
     auto client = pool_->acquire();
@@ -226,10 +354,26 @@ std::vector<std::pair<std::string, int>> BlogRepository::CountPostsPerAuthor() {
       if (view["count"]) count = view["count"].get_int32().value;
       result.emplace_back(author, count);
     }
+    return RepositoryResult<std::vector<std::pair<std::string, int>>>::Success(
+        std::move(result));
   } catch (const mongocxx::exception& e) {
-    std::cerr << "CountPostsPerAuthor error: " << e.what() << std::endl;
+    return MongoFailure<std::vector<std::pair<std::string, int>>>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<std::vector<std::pair<std::string, int>>>(e);
   }
-  return result;
+}
+
+RepositoryResult<bool> BlogRepository::Ping() {
+  try {
+    auto client = pool_->acquire();
+    auto command = make_document(kvp("ping", 1));
+    (*client)[db_name_].run_command(command.view());
+    return RepositoryResult<bool>::Success(true);
+  } catch (const mongocxx::exception& e) {
+    return MongoFailure<bool>(e);
+  } catch (const bsoncxx::exception& e) {
+    return BsonFailure<bool>(e);
+  }
 }
 
 model::Post BlogRepository::DocumentToPost(const bsoncxx::document::view& view) {

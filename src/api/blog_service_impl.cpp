@@ -3,17 +3,46 @@
 #include <grpcpp/grpcpp.h>
 
 #include "model/blog_models.h"
+#include "model/blog_validation.h"
 
 namespace blog::api {
+
+namespace {
+
+grpc::Status RepositoryStatus(const blog::db::RepositoryError error,
+                              const std::string& message) {
+  using blog::db::RepositoryError;
+  switch (error) {
+    case RepositoryError::kInvalidArgument:
+      return {grpc::StatusCode::INVALID_ARGUMENT, message};
+    case RepositoryError::kNotFound:
+      return {grpc::StatusCode::NOT_FOUND, message};
+    case RepositoryError::kConflict:
+      return {grpc::StatusCode::ALREADY_EXISTS, message};
+    case RepositoryError::kUnavailable:
+      return {grpc::StatusCode::UNAVAILABLE, "database unavailable"};
+    case RepositoryError::kInternal:
+      return {grpc::StatusCode::INTERNAL, "internal database error"};
+    case RepositoryError::kNone:
+      break;
+  }
+  return {grpc::StatusCode::INTERNAL, "unexpected repository result"};
+}
+
+void CopyPost(const model::Post& source, blog::Post* destination) {
+  destination->set_id(source.id);
+  destination->set_title(source.title);
+  destination->set_author(source.author);
+  destination->set_content(source.content);
+  destination->set_published_date(source.published_date);
+  for (const auto& tag : source.tags) destination->add_tags(tag);
+}
+
+}  // namespace
 
 grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context,
                                       const blog::Post* post,
                                       blog::PostResponse* response) {
-  if (post->title().empty() || post->author().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "title and author are required");
-  }
-
   model::Post model;
   model.title = post->title();
   model.author = post->author();
@@ -21,29 +50,27 @@ grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context,
   model.published_date = post->published_date();
   for (const auto& tag : post->tags()) model.tags.push_back(tag);
 
-  std::string id = repo_.AddPost(model);
-  if (id.empty()) {
-    return grpc::Status(grpc::StatusCode::INTERNAL, "failed to insert post");
+  if (const auto error = blog::model::ValidatePost(model)) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, *error);
   }
-  response->set_id(id);
+
+  auto result = store_.AddPost(model);
+  if (!result.ok()) {
+    return RepositoryStatus(result.error, result.message);
+  }
+  response->set_id(*result.value);
   return grpc::Status::OK;
 }
 
 grpc::Status BlogServiceImpl::GetPost(grpc::ServerContext* context,
                                       const blog::PostResponse* request,
                                       blog::FullPostResponse* response) {
-  auto maybe = repo_.FindPostById(request->id());
-  if (!maybe) {
-    return grpc::Status(grpc::StatusCode::NOT_FOUND, "post not found");
+  auto result = store_.FindPostById(request->id());
+  if (!result.ok()) {
+    return RepositoryStatus(result.error, result.message);
   }
 
-  blog::Post* post = response->mutable_post();
-  post->set_id(maybe->id);
-  post->set_title(maybe->title);
-  post->set_author(maybe->author);
-  post->set_content(maybe->content);
-  post->set_published_date(maybe->published_date);
-  for (const auto& tag : maybe->tags) post->add_tags(tag);
+  CopyPost(*result.value, response->mutable_post());
   return grpc::Status::OK;
 }
 
@@ -63,8 +90,13 @@ grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context,
   model.published_date = post->published_date();
   for (const auto& tag : post->tags()) model.tags.push_back(tag);
 
-  if (!repo_.UpdatePost(model)) {
-    return grpc::Status(grpc::StatusCode::NOT_FOUND, "post not found");
+  if (const auto error = blog::model::ValidatePost(model)) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, *error);
+  }
+
+  auto result = store_.UpdatePost(model);
+  if (!result.ok()) {
+    return RepositoryStatus(result.error, result.message);
   }
   response->set_id(model.id);
   return grpc::Status::OK;
@@ -73,8 +105,9 @@ grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context,
 grpc::Status BlogServiceImpl::DeletePost(grpc::ServerContext* context,
                                          const blog::PostResponse* request,
                                          blog::PostResponse* response) {
-  if (!repo_.DeletePost(request->id())) {
-    return grpc::Status(grpc::StatusCode::NOT_FOUND, "post not found");
+  auto result = store_.DeletePost(request->id());
+  if (!result.ok()) {
+    return RepositoryStatus(result.error, result.message);
   }
   response->set_id(request->id());
   return grpc::Status::OK;
@@ -83,13 +116,12 @@ grpc::Status BlogServiceImpl::DeletePost(grpc::ServerContext* context,
 grpc::Status BlogServiceImpl::GetAllPosts(grpc::ServerContext* context,
                                           const blog::PostResponse* request,
                                           blog::AllPostsResponse* response) {
-  auto posts = repo_.GetAllPosts();
-  for (const auto& p : posts) {
-    blog::Post* post = response->add_posts();
-    post->set_id(p.id);
-    post->set_title(p.title);
-    post->set_author(p.author);
-    post->set_content(p.content);
+  auto result = store_.GetAllPosts();
+  if (!result.ok()) {
+    return RepositoryStatus(result.error, result.message);
+  }
+  for (const auto& post : *result.value) {
+    CopyPost(post, response->add_posts());
   }
   return grpc::Status::OK;
 }

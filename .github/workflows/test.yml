@@ -30,5 +30,8 @@ jobs:
       - name: Build
         run: cmake --build build -j2
 
-      - name: Run tests
-        run: ./build/tests/run_tests
+      - name: Run unit tests
+        run: ctest --test-dir build -L unit --output-on-failure
+
+      - name: Run integration tests
+        run: ctest --test-dir build -L integration --output-on-failure --timeout 20

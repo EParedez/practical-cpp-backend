@@ -6,6 +6,9 @@ El libro solo ofrece fragmentos de código por capítulo; este repositorio los i
 en una aplicación real, compilable y testeada: **un servidor de blog**.
 
 > Documentos: **[Arquitectura y Next Steps](ARCHITECTURE.md)** · [README](#practical-c-backend-programming)
+>
+> English documentation: [Improvement Plan](IMPROVEMENT_PLAN.md) ·
+> [HTTP API](API.md) · [Testing Guide](TESTING.md)
 
 ## Stack (según los capítulos del libro)
 
@@ -72,7 +75,7 @@ brew tap mongodb/brew && brew install mongodb-community@8.0
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/grpc;/opt/homebrew/opt/mongo-cxx-driver;/opt/homebrew/opt/bsoncxx;/opt/homebrew/opt/mongo-c-driver;/opt/homebrew/opt/googletest"
 cmake --build build -j8
-./build/tests/run_tests     # 24 tests
+ctest --test-dir build --output-on-failure  # 39 tests
 ```
 
 Nota: si el shell corre bajo Rosetta 2 en un Mac ARM, anteponga `arch -arm64` a los
