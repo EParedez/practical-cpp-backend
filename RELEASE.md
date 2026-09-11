@@ -8,10 +8,11 @@ smoke jobs run in the `C++ CI` workflow. A push to `main` or `master` can publis
 after that workflow succeeds.
 
 The publication workflow checks out the tested commit, generates an SPDX SBOM, and
-blocks on high or critical vulnerability findings before it publishes to GHCR with
-both `latest` and an immutable `sha-<commit>` tag. It then creates a GitHub
-build-provenance attestation. Release and deployment records must use the digest,
-not `latest`.
+blocks on high or critical vulnerability findings. CI separately builds and scans
+`linux/amd64` and `linux/arm64`; publication creates one GHCR multi-platform manifest
+with both `latest` and an immutable `sha-<commit>` tag. It then creates a GitHub
+build-provenance attestation. Release and deployment records must use the digest, not
+`latest`.
 
 ## AWS deployment model
 

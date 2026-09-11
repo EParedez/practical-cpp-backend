@@ -17,6 +17,7 @@ Spanish translations of the original overview and architecture documents are kep
 - [Production cache](CACHE.md)
 - [Security model](SECURITY.md)
 - [Testing and troubleshooting](TESTING.md)
+- [Linux support](docs/LINUX.md)
 - [Local Docker deployment](DEPLOYMENT.md)
 - [Release and rollback](RELEASE.md)
 - [Dependency provenance and updates](docs/DEPENDENCIES.md)
@@ -72,6 +73,16 @@ brew tap mongodb/brew
 brew install cmake openssl@3 grpc protobuf mongo-cxx-driver googletest \
   mongodb-community@8.0
 ```
+
+Ubuntu 22.04 and 24.04 have a dedicated native setup helper. It installs build
+dependencies on the host but runs MongoDB in Docker:
+
+```bash
+./scripts/setup-linux.sh
+```
+
+Other Linux distributions are supported through Docker rather than native packages.
+See [Linux Support](docs/LINUX.md) for the support policy and manual commands.
 
 ## Build and Test
 

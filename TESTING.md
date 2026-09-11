@@ -9,6 +9,10 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j4
 ```
 
+On supported Ubuntu releases, `./scripts/setup-linux.sh` installs native build
+dependencies and runs unit plus Docker-backed integration tests. See
+[Linux Support](docs/LINUX.md).
+
 ## Unit Tests
 
 Unit tests do not require MongoDB. They cover the cache implementations, HTTP routes

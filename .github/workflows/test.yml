@@ -15,7 +15,7 @@ env:
 
 jobs:
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,7 +29,12 @@ jobs:
           ! -path 'src/server/httplib.h')
 
   unit:
-    runs-on: ubuntu-latest
+    name: Unit and strict build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,7 +47,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /home/runner/.local/mongo-cxx-driver
-          key: mongo-cxx-driver-4.5.0-${{ runner.os }}-${{ runner.arch }}
+          key: mongo-cxx-driver-4.5.0-${{ matrix.os }}-${{ runner.arch }}
       - name: Install MongoDB C++ Driver
         run: ./scripts/install_mongo_cxx_driver.sh
       - name: Configure with strict warnings
@@ -57,7 +62,7 @@ jobs:
         run: cmake --install build --prefix "$RUNNER_TEMP/blog-install"
 
   integration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       mongodb:
         image: mongo:8.0
@@ -77,7 +82,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /home/runner/.local/mongo-cxx-driver
-          key: mongo-cxx-driver-4.5.0-${{ runner.os }}-${{ runner.arch }}
+          key: mongo-cxx-driver-4.5.0-ubuntu-24.04-${{ runner.arch }}
       - name: Install MongoDB C++ Driver
         run: ./scripts/install_mongo_cxx_driver.sh
       - name: Build
@@ -89,7 +94,7 @@ jobs:
         run: ctest --test-dir build -L integration --output-on-failure --timeout 30
 
   sanitizer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,7 +107,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /home/runner/.local/mongo-cxx-driver
-          key: mongo-cxx-driver-4.5.0-${{ runner.os }}-${{ runner.arch }}
+          key: mongo-cxx-driver-4.5.0-ubuntu-24.04-${{ runner.arch }}
       - name: Install MongoDB C++ Driver
         run: ./scripts/install_mongo_cxx_driver.sh
       - name: Build with ASan and UBSan
@@ -117,7 +122,7 @@ jobs:
         run: ctest --test-dir build -L unit --output-on-failure
 
   coverage-and-analysis:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -130,7 +135,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /home/runner/.local/mongo-cxx-driver
-          key: mongo-cxx-driver-4.5.0-${{ runner.os }}-${{ runner.arch }}
+          key: mongo-cxx-driver-4.5.0-ubuntu-24.04-${{ runner.arch }}
       - name: Install MongoDB C++ Driver
         run: ./scripts/install_mongo_cxx_driver.sh
       - name: Build with coverage and static analysis
@@ -152,7 +157,7 @@ jobs:
           path: coverage.info
 
   container-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [unit, integration, sanitizer]
     steps:
       - uses: actions/checkout@v4
@@ -161,9 +166,62 @@ jobs:
       - name: Build and smoke test without publishing
         run: ./scripts/smoke_test.sh
 
+  container-platforms:
+    name: Container (${{ matrix.platform }}, Ubuntu ${{ matrix.ubuntu-version }})
+    runs-on: ubuntu-24.04
+    needs: [unit]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            architecture: x86_64
+            slug: ubuntu-24.04-amd64
+            ubuntu-version: "24.04"
+          - platform: linux/arm64
+            architecture: aarch64
+            slug: ubuntu-24.04-arm64
+            ubuntu-version: "24.04"
+          - platform: linux/amd64
+            architecture: x86_64
+            slug: ubuntu-22.04-amd64
+            ubuntu-version: "22.04"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build platform image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: UBUNTU_VERSION=${{ matrix.ubuntu-version }}
+          load: true
+          push: false
+          tags: practical-cpp-backend:${{ matrix.slug }}
+          cache-from: type=gha,scope=container-${{ matrix.slug }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.slug }}
+      - name: Verify platform and runtime linkage
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            practical-cpp-backend:${{ matrix.slug }} -ec '
+              test "$(uname -m)" = "${{ matrix.architecture }}"
+              ! ldd /app/blog_http_server | grep -q "not found"
+              ! ldd /app/blog_grpc_server | grep -q "not found"
+            '
+      - name: Scan platform image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: practical-cpp-backend:${{ matrix.slug }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -171,7 +229,7 @@ jobs:
       - uses: actions/dependency-review-action@v4
 
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

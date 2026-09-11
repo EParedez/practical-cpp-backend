@@ -36,12 +36,18 @@ RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
     cmake --build build -j"$(nproc)" && \
     cmake --install build --prefix /opt/blog
 
-# Stage 2: minimal runtime.
+# Stage 2: portable runtime. Resolve Ubuntu ABI package names from stable development
+# package metadata instead of hard-coding release-specific names.
 FROM ubuntu:${UBUNTU_VERSION} AS runtime
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl libbson-1.0-0 libmongoc-1.0-0 libssl3t64 \
-    libgrpc++1.51t64 libgrpc29t64 libabsl20220623t64 libprotobuf32 && \
+RUN apt-get update && \
+    runtime_packages="$(apt-cache depends libgrpc++-dev libprotobuf-dev libssl-dev | \
+      awk '$1 == "Depends:" {gsub(/[<>]/, "", $2); \
+        if ($2 ~ /^libgrpc[+][+][0-9]/ || $2 ~ /^libprotobuf[0-9]/ || \
+            $2 ~ /^libssl[0-9]/) print $2}' | sort -u)" && \
+    test -n "$runtime_packages" && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates curl libsasl2-2 libsnappy1v5 libzstd1 $runtime_packages && \
     groupadd --gid 10001 app && \
     useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app && \
     rm -rf /var/lib/apt/lists/*

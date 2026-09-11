@@ -110,8 +110,9 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) and [RELEASE.md](RELEASE.md).
 
 CMake builds three runtime executables and three test executables. The suite currently
 contains 73 tests: 51 unit tests and 22 MongoDB-backed integration tests. CI adds
-warnings-as-errors builds, clang-format, clang-tidy, sanitizers, coverage, dependency
-review, secret scanning, container scanning, and an end-to-end Compose smoke test.
+warnings-as-errors builds on Ubuntu 22.04 and 24.04, clang-format, clang-tidy,
+sanitizers, coverage, dependency review, secret scanning, `amd64`/`arm64` container
+builds and scans, and an end-to-end Compose smoke test.
 
 ## Architecture Decisions
 

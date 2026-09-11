@@ -88,8 +88,11 @@ docker compose down --volumes
 The multi-stage Dockerfile builds the MongoDB C++ driver and application binaries in
 the builder stage, then copies only the runtime artifacts into Ubuntu 24.04. The
 MongoDB C++ driver is pinned to 4.5.0, while Compose pins MongoDB to 8.0 and Nginx to
-1.27. Application containers run as UID/GID 10001 instead of root. `.dockerignore`
-excludes repository metadata, local agent state, build output, and logs.
+1.27. The runtime stage derives release-specific library package names from stable
+Ubuntu development-package metadata, but installs only runtime libraries. CI builds
+the image for both `linux/amd64` and `linux/arm64`. Application containers run as
+UID/GID 10001 instead of root. `.dockerignore` excludes repository metadata, local
+agent state, build output, and logs.
 
 ## Production deployment
 

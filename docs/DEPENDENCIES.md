@@ -50,6 +50,11 @@ GoogleTest through CMake packages. CI pins the source-built MongoDB C++ driver v
 in `scripts/install_mongo_cxx_driver.sh`. The Dockerfile pins its base images and the
 MongoDB C++ driver; Docker Compose pins MongoDB and Nginx images.
 
+Ubuntu 22.04 does not expose a gRPC CMake package configuration from its system
+package, so the root CMake project falls back to the packaged `grpc++` pkg-config
+module and locates `grpc_cpp_plugin` as a program. Ubuntu 24.04 uses the preferred
+upstream-style CMake targets. Both paths are exercised by the CI matrix.
+
 When updating any pinned dependency, change all duplicate version declarations in one
 pull request, regenerate the SBOM through CI, and review the dependency and container
 scans before merge. Never weaken a scan threshold merely to accept an update.
