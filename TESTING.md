@@ -32,6 +32,11 @@ instance before running them:
 ctest --test-dir build -L integration --output-on-failure --timeout 20
 ```
 
+`scripts/start_mongo.sh` expects an existing native `mongod`. The broader
+`scripts/setup.sh` helper installs MongoDB Community Edition natively through Homebrew
+when it is missing. Use `scripts/smoke_test.sh` instead when MongoDB should run only in
+Docker.
+
 MongoDB connection and server-selection timeouts are bounded so a missing database
 fails quickly. gRPC calls also use finite deadlines. The current integration suite
 contains 22 tests.

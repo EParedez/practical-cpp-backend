@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Setup script for the Practical C++ Backend project.
-# Installs dependencies (macOS Homebrew), configures and builds, and runs tests.
+# Installs dependencies with macOS Homebrew, including MongoDB Community Edition as
+# a native host service when mongod is unavailable. Use scripts/smoke_test.sh instead
+# when MongoDB should run only in Docker.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+echo "NOTE: setup.sh installs MongoDB Community Edition natively with Homebrew."
+echo "      Use ./scripts/smoke_test.sh for a Docker-only MongoDB workflow."
+echo
 
 echo "==> Checking for Homebrew..."
 if ! command -v brew >/dev/null 2>&1; then

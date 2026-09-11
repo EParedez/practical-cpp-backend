@@ -75,12 +75,17 @@ brew install cmake openssl@3 grpc protobuf mongo-cxx-driver googletest \
 
 ## Build and Test
 
-The macOS helper installs missing Homebrew dependencies, starts a local MongoDB,
-builds the project, and runs all tests:
+The macOS helper installs missing Homebrew dependencies, including MongoDB Community
+Edition as a native host installation, starts that local MongoDB, builds the project,
+and runs all tests:
 
 ```bash
 ./scripts/setup.sh
 ```
+
+Do not run `setup.sh` if MongoDB should remain Docker-only. Use the Docker Compose
+smoke test documented below; it runs MongoDB inside an isolated container and does not
+require a native `mongod` installation.
 
 Or run the steps manually:
 
