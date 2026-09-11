@@ -8,7 +8,7 @@ ARG MONGO_CXX_DRIVER_VERSION=4.5.0
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential cmake pkg-config git ca-certificates \
-    libmongoc-dev libgrpc++-dev protobuf-compiler-grpc \
+    libmongoc-dev libgrpc++-dev protobuf-compiler-grpc libssl-dev \
     libprotobuf-dev libgtest-dev && \
     rm -rf /var/lib/apt/lists/*
 
@@ -31,23 +31,25 @@ WORKDIR /src
 COPY . .
 
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+      -DENABLE_WARNINGS_AS_ERRORS=ON \
       -DCMAKE_PREFIX_PATH=/opt/mongo-cxx-driver && \
-    cmake --build build -j"$(nproc)"
+    cmake --build build -j"$(nproc)" && \
+    cmake --install build --prefix /opt/blog
 
 # Stage 2: minimal runtime.
 FROM ubuntu:${UBUNTU_VERSION} AS runtime
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl libbson-1.0-0 libmongoc-1.0-0 \
+    ca-certificates curl libbson-1.0-0 libmongoc-1.0-0 libssl3t64 \
     libgrpc++1.51t64 libgrpc29t64 libabsl20220623t64 libprotobuf32 && \
     groupadd --gid 10001 app && \
     useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder --chown=app:app /src/build/blog_http_server /app/blog_http_server
-COPY --from=builder --chown=app:app /src/build/blog_grpc_server /app/blog_grpc_server
-COPY --from=builder /opt/mongo-cxx-driver/lib/ /opt/mongo-cxx-driver/lib/
+COPY --from=builder --chown=app:app /opt/blog/bin/blog_http_server /app/blog_http_server
+COPY --from=builder --chown=app:app /opt/blog/bin/blog_grpc_server /app/blog_grpc_server
+COPY --from=builder /opt/mongo-cxx-driver/lib/*.so* /opt/mongo-cxx-driver/lib/
 
 ENV MONGODB_URI=mongodb://mongo:27017
 ENV BLOG_DATABASE=blog

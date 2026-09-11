@@ -1,0 +1,40 @@
+{
+  "family": "practical-cpp-backend-http",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "REPLACE_WITH_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "REPLACE_WITH_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "blog-http",
+      "image": "REPLACE_WITH_IMMUTABLE_GHCR_IMAGE_DIGEST",
+      "essential": true,
+      "portMappings": [{"containerPort": 8080, "protocol": "tcp"}],
+      "environment": [
+        {"name": "PORT", "value": "8080"},
+        {"name": "AUTH_REQUIRED", "value": "true"}
+      ],
+      "secrets": [
+        {"name": "MONGODB_URI", "valueFrom": "REPLACE_WITH_MONGODB_SECRET_ARN"},
+        {"name": "BLOG_WRITER_TOKEN", "valueFrom": "REPLACE_WITH_WRITER_TOKEN_SECRET_ARN"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/practical-cpp-backend-http",
+          "awslogs-region": "REPLACE_WITH_AWS_REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/ready || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 15
+      }
+    }
+  ]
+}

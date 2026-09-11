@@ -22,7 +22,7 @@ The project currently provides:
 - CMake, Docker, Docker Compose, Nginx, GitHub Actions, and AWS deployment files.
 
 The project builds successfully in the current development environment. The current
-suite contains 43 unit tests and 21 MongoDB-backed integration tests; all 64 pass.
+suite contains 51 unit tests and 22 MongoDB-backed integration tests; all 73 pass.
 Integration tests require a reachable MongoDB instance and use bounded connection and
 RPC deadlines.
 
@@ -41,9 +41,7 @@ RPC deadlines.
 
 ## Phase 0: Baseline and Safety Net
 
-**Status:** In progress. The test split, deadlines, and Phase 1/2 regression coverage
-are complete; cache edge cases, compiler warnings, sanitizers, and dynamic gRPC test
-ports remain.
+**Status:** Complete as of 2026-09-10.
 
 ### Objective
 
@@ -57,14 +55,14 @@ existing behavior.
 - [x] Add finite MongoDB server-selection and connection timeouts for tests.
 - [x] Add gRPC client deadlines in integration tests.
 - [x] Use `localhost` as the test client destination instead of `0.0.0.0`.
-- [ ] Avoid a fixed integration-test port, or allocate a port safely.
-- [ ] Add regression tests for:
+- [x] Avoid a fixed integration-test port, or allocate a port safely.
+- [x] Add regression tests for:
   - [x] Invalid MongoDB ObjectIds.
   - [x] Idempotent updates.
   - [x] JSON strings containing quotes, newlines, and Unicode.
-  - [ ] Zero and negative cache capacities.
-  - [ ] LFU values equal to `-1`.
-- [ ] Add compiler warnings for project-owned code.
+  - [x] Zero and negative cache capacities.
+  - [x] LFU values equal to `-1`.
+- [x] Add compiler warnings for project-owned code.
 - [x] Add AddressSanitizer and UndefinedBehaviorSanitizer options for local and CI
   builds.
 
@@ -271,26 +269,28 @@ Replace the demonstration-only integer caches with a cache suitable for blog rea
 
 ## Phase 7: Security
 
+**Status:** Complete as of 2026-09-10.
+
 ### Objective
 
 Make the security claims in the documentation true and testable.
 
 ### Work Items
 
-- [ ] Define authentication and authorization requirements before choosing JWT,
+- [x] Define authentication and authorization requirements before choosing JWT,
   OAuth/OIDC, or another mechanism.
-- [ ] Protect create, update, and delete operations in both HTTP and gRPC.
-- [ ] Introduce roles such as reader, writer, and administrator if required.
-- [ ] Hash passwords in a dedicated authentication component using an appropriate
+- [x] Protect create, update, and delete operations in both HTTP and gRPC.
+- [x] Introduce roles such as reader, writer, and administrator if required.
+- [x] Hash passwords in a dedicated authentication component using an appropriate
   password-hashing algorithm; never trust callers to submit a pre-hashed password.
-- [ ] Stop returning password hashes from repository read models.
-- [ ] Add TLS for external HTTP and gRPC traffic.
-- [ ] Configure CORS explicitly if browser clients are expected.
-- [ ] Apply rate limits to real sensitive endpoints, not only example routes.
-- [ ] Replace obsolete security headers and add a suitable Content Security Policy
+- [x] Stop returning password hashes from repository read models.
+- [x] Add TLS for external HTTP and gRPC traffic.
+- [x] Configure CORS explicitly if browser clients are expected.
+- [x] Apply rate limits to real sensitive endpoints, not only example routes.
+- [x] Replace obsolete security headers and add a suitable Content Security Policy
   where relevant.
-- [ ] Add dependency, container, and secret scanning to CI.
-- [ ] Add authorization and abuse-case tests.
+- [x] Add dependency, container, and secret scanning to CI.
+- [x] Add authorization and abuse-case tests.
 
 ### Acceptance Criteria
 
@@ -301,24 +301,26 @@ Make the security claims in the documentation true and testable.
 
 ## Phase 8: CI/CD and Release Engineering
 
+**Status:** Complete as of 2026-09-10.
+
 ### Objective
 
 Ensure every released artifact is tested, traceable, and reproducible.
 
 ### Work Items
 
-- [ ] Make Docker publication depend on successful build, unit, integration, and smoke
+- [x] Make Docker publication depend on successful build, unit, integration, and smoke
   tests.
-- [ ] Build on pull requests without pushing images.
-- [ ] Publish immutable commit/version tags in addition to any moving tag.
-- [ ] Add dependency caching where it does not weaken reproducibility.
-- [ ] Add formatting, static analysis, sanitizer, and coverage jobs.
-- [ ] Generate a software bill of materials and scan the final image.
-- [ ] Add CMake install rules and package only required runtime artifacts.
-- [ ] Choose one supported deployment model for AWS, preferably a container-based
+- [x] Build on pull requests without pushing images.
+- [x] Publish immutable commit/version tags in addition to any moving tag.
+- [x] Add dependency caching where it does not weaken reproducibility.
+- [x] Add formatting, static analysis, sanitizer, and coverage jobs.
+- [x] Generate a software bill of materials and scan the final image.
+- [x] Add CMake install rules and package only required runtime artifacts.
+- [x] Choose one supported deployment model for AWS, preferably a container-based
   model for the current architecture.
-- [ ] Remove or replace the current Go/WSGI Elastic Beanstalk configuration.
-- [ ] Document rollback and database compatibility procedures.
+- [x] Remove or replace the current Go/WSGI Elastic Beanstalk configuration.
+- [x] Document rollback and database compatibility procedures.
 
 ### Acceptance Criteria
 
@@ -330,24 +332,26 @@ Ensure every released artifact is tested, traceable, and reproducible.
 
 ## Phase 9: Documentation Alignment
 
+**Status:** Complete as of 2026-09-10.
+
 ### Objective
 
 Provide accurate English documentation that reflects the implemented system.
 
 ### Work Items
 
-- [ ] Translate `README.md` into English after verifying every setup and deployment
+- [x] Translate `README.md` into English after verifying every setup and deployment
   command.
-- [ ] Translate and update `ARCHITECTURE.md` after the application boundaries stabilize.
-- [ ] Keep the original Spanish files or preserve them through clearly named localized
+- [x] Translate and update `ARCHITECTURE.md` after the application boundaries stabilize.
+- [x] Keep the original Spanish files or preserve them through clearly named localized
   copies until the English versions are accepted.
-- [ ] Mark planned features as planned rather than implemented.
-- [ ] Document HTTP and gRPC contracts with request and response examples.
+- [x] Mark planned features as planned rather than implemented.
+- [x] Document HTTP and gRPC contracts with request and response examples.
 - [x] Document configuration variables, defaults, constraints, and precedence.
-- [ ] Document local development, tests, Docker Compose, troubleshooting, security,
+- [x] Document local development, tests, Docker Compose, troubleshooting, security,
   and deployment.
-- [ ] Record important architectural decisions in short ADRs under `docs/adr/`.
-- [ ] Add dependency provenance and an update procedure for the vendored
+- [x] Record important architectural decisions in short ADRs under `docs/adr/`.
+- [x] Add dependency provenance and an update procedure for the vendored
   `cpp-httplib` header.
 
 ### Acceptance Criteria

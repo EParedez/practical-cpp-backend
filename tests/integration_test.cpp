@@ -1,6 +1,5 @@
-#include <gtest/gtest.h>
-
 #include <grpcpp/grpcpp.h>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <memory>
@@ -8,25 +7,30 @@
 #include <thread>
 
 #include "api/blog_service_impl.h"
+#include "auth/auth.h"
 #include "blog_service.grpc.pb.h"
 #include "db/blog_repository.h"
 
 namespace {
 
-const char* kServerAddress = "127.0.0.1:50052";
 const char* kMongoUri =
     "mongodb://localhost:27017/?serverSelectionTimeoutMS=2000&connectTimeoutMS=2000";
+const char* kWriterToken = "integration-writer-token-at-least-32-characters";
 
 void SetDeadline(grpc::ClientContext* context) {
-  context->set_deadline(std::chrono::system_clock::now() +
-                        std::chrono::seconds(5));
+  context->set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
+}
+
+void AuthorizeWriter(grpc::ClientContext* context) {
+  context->AddMetadata("authorization", std::string("Bearer ") + kWriterToken);
 }
 
 class GrpcIntegrationTest : public ::testing::Test {
  protected:
   void SetUp() override {
     repo = std::make_unique<blog::db::BlogRepository>(kMongoUri, "blog_itest");
-    service = std::make_unique<blog::api::BlogServiceImpl>(*repo);
+    service = std::make_unique<blog::api::BlogServiceImpl>(*repo, 128, std::chrono::seconds(60),
+                                                           &authenticator, &rate_limiter);
 
     auto client = repo->pool().acquire();
     (*client)["blog_itest"]["posts"].delete_many({});
@@ -34,12 +38,14 @@ class GrpcIntegrationTest : public ::testing::Test {
     ASSERT_TRUE(schema.ok()) << schema.message;
 
     grpc::ServerBuilder builder;
-    builder.AddListeningPort(kServerAddress, grpc::InsecureServerCredentials());
+    int selected_port = 0;
+    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &selected_port);
     builder.RegisterService(service.get());
     server = builder.BuildAndStart();
     ASSERT_TRUE(server != nullptr);
+    ASSERT_GT(selected_port, 0);
 
-    auto channel = grpc::CreateChannel(kServerAddress,
+    auto channel = grpc::CreateChannel("127.0.0.1:" + std::to_string(selected_port),
                                        grpc::InsecureChannelCredentials());
     stub = blog::BlogService::NewStub(channel);
   }
@@ -49,6 +55,9 @@ class GrpcIntegrationTest : public ::testing::Test {
   }
 
   std::unique_ptr<blog::db::BlogRepository> repo;
+  blog::security::Authenticator authenticator{
+      true, {{"writer", kWriterToken, blog::security::Role::kWriter}}};
+  blog::security::FixedWindowRateLimiter rate_limiter{1000};
   std::unique_ptr<blog::api::BlogServiceImpl> service;
   std::unique_ptr<grpc::Server> server;
   std::unique_ptr<blog::BlogService::Stub> stub;
@@ -64,16 +73,17 @@ TEST_F(GrpcIntegrationTest, AddPostPersistsToMongoDB) {
 
   grpc::ClientContext ctx;
   SetDeadline(&ctx);
+  AuthorizeWriter(&ctx);
   blog::PostResponse response;
   grpc::Status status = stub->AddPost(&ctx, post, &response);
 
   ASSERT_TRUE(status.ok());
   ASSERT_FALSE(response.id().empty());
 
-    auto maybe = repo->FindPostById(response.id());
-    ASSERT_TRUE(maybe.ok()) << maybe.message;
-    EXPECT_EQ(maybe.value->title, "Test Title");
-    EXPECT_EQ(maybe.value->author, "tester");
+  auto maybe = repo->FindPostById(response.id());
+  ASSERT_TRUE(maybe.ok()) << maybe.message;
+  EXPECT_EQ(maybe.value->title, "Test Title");
+  EXPECT_EQ(maybe.value->author, "tester");
 }
 
 TEST_F(GrpcIntegrationTest, GetPostReturnsFullPost) {
@@ -84,6 +94,7 @@ TEST_F(GrpcIntegrationTest, GetPostReturnsFullPost) {
 
   grpc::ClientContext ctx_add;
   SetDeadline(&ctx_add);
+  AuthorizeWriter(&ctx_add);
   blog::PostResponse add_response;
   ASSERT_TRUE(stub->AddPost(&ctx_add, post, &add_response).ok());
 
@@ -102,6 +113,7 @@ TEST_F(GrpcIntegrationTest, GetPostReturnsFullPost) {
 TEST_F(GrpcIntegrationTest, GetMissingPostReturnsNotFound) {
   grpc::ClientContext ctx;
   SetDeadline(&ctx);
+  AuthorizeWriter(&ctx);
   blog::PostResponse request;
   request.set_id("000000000000000000000000");  // non-existent ObjectId
   blog::FullPostResponse response;
@@ -117,6 +129,7 @@ TEST_F(GrpcIntegrationTest, AddPostRejectsEmptyAuthor) {
 
   grpc::ClientContext ctx;
   SetDeadline(&ctx);
+  AuthorizeWriter(&ctx);
   blog::PostResponse response;
   grpc::Status status = stub->AddPost(&ctx, post, &response);
 
@@ -131,18 +144,19 @@ TEST_F(GrpcIntegrationTest, DeletePostRemovesFromDatabase) {
 
   grpc::ClientContext ctx_add;
   SetDeadline(&ctx_add);
+  AuthorizeWriter(&ctx_add);
   blog::PostResponse add_response;
   ASSERT_TRUE(stub->AddPost(&ctx_add, post, &add_response).ok());
 
   grpc::ClientContext ctx_del;
   SetDeadline(&ctx_del);
+  AuthorizeWriter(&ctx_del);
   blog::PostResponse request;
   request.set_id(add_response.id());
   blog::PostResponse del_response;
   ASSERT_TRUE(stub->DeletePost(&ctx_del, request, &del_response).ok());
 
-  EXPECT_EQ(repo->FindPostById(add_response.id()).error,
-            blog::db::RepositoryError::kNotFound);
+  EXPECT_EQ(repo->FindPostById(add_response.id()).error, blog::db::RepositoryError::kNotFound);
 }
 
 TEST_F(GrpcIntegrationTest, GetAllPostsReturnsAll) {
@@ -154,6 +168,7 @@ TEST_F(GrpcIntegrationTest, GetAllPostsReturnsAll) {
 
     grpc::ClientContext ctx;
     SetDeadline(&ctx);
+    AuthorizeWriter(&ctx);
     blog::PostResponse response;
     ASSERT_TRUE(stub->AddPost(&ctx, post, &response).ok());
   }
@@ -172,10 +187,10 @@ TEST_F(GrpcIntegrationTest, ListPostsAppliesFiltersAndBounds) {
     post.set_title("Post " + std::to_string(index));
     post.set_author(index == 2 ? "bob" : "alice");
     post.add_tags(index == 1 ? "other" : "cpp");
-    post.set_published_date("2026-09-0" + std::to_string(index + 1) +
-                            "T12:00:00Z");
+    post.set_published_date("2026-09-0" + std::to_string(index + 1) + "T12:00:00Z");
     grpc::ClientContext add_context;
     SetDeadline(&add_context);
+    AuthorizeWriter(&add_context);
     blog::PostResponse add_response;
     ASSERT_TRUE(stub->AddPost(&add_context, post, &add_response).ok());
   }
@@ -190,4 +205,17 @@ TEST_F(GrpcIntegrationTest, ListPostsAppliesFiltersAndBounds) {
   ASSERT_TRUE(stub->ListPosts(&context, request, &response).ok());
   ASSERT_EQ(response.posts_size(), 1);
   EXPECT_EQ(response.posts(0).title(), "Post 0");
+}
+
+TEST_F(GrpcIntegrationTest, RejectsAnonymousMutation) {
+  blog::Post post;
+  post.set_title("Blocked");
+  post.set_author("anonymous");
+  grpc::ClientContext context;
+  SetDeadline(&context);
+  blog::PostResponse response;
+
+  const auto status = stub->AddPost(&context, post, &response);
+
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::UNAUTHENTICATED);
 }

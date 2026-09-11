@@ -14,8 +14,7 @@ void RRCache::put(int key, int value) {
     return;
   }
   if (static_cast<int>(keys_.size()) >= capacity_) {
-    const auto victim_index =
-        static_cast<std::size_t>(std::rand()) % keys_.size();
+    const auto victim_index = static_cast<std::size_t>(std::rand()) % keys_.size();
     const int victim = keys_[victim_index];
     const int last_key = keys_.back();
     keys_[victim_index] = last_key;

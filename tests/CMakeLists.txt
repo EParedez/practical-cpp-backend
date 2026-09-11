@@ -4,6 +4,7 @@ add_executable(unit_tests
   cache_test.cpp
   post_cache_test.cpp
   config_test.cpp
+  security_test.cpp
   http_server_test.cpp
 )
 

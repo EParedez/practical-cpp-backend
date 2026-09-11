@@ -13,8 +13,7 @@ namespace blog::observability {
 
 using LogFields = std::vector<std::pair<std::string, std::string>>;
 
-void Log(const std::string& level, const std::string& event,
-         const LogFields& fields = {});
+void Log(const std::string& level, const std::string& event, const LogFields& fields = {});
 
 class Metrics {
  public:
@@ -32,8 +31,7 @@ class Metrics {
 
  private:
   mutable std::mutex request_mutex_;
-  std::unordered_map<
-      std::string, std::vector<std::chrono::steady_clock::time_point>>
+  std::unordered_map<std::string, std::vector<std::chrono::steady_clock::time_point>>
       request_starts_;
   std::atomic<std::uint64_t> http_requests_{0};
   std::atomic<std::uint64_t> http_errors_{0};

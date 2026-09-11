@@ -1,13 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <string>
-
 #include <bsoncxx/document/value.hpp>
+#include <memory>
 #include <mongocxx/collection.hpp>
 #include <mongocxx/database.hpp>
 #include <mongocxx/instance.hpp>
 #include <mongocxx/pool.hpp>
+#include <string>
 
 #include "db/blog_store.h"
 
@@ -19,10 +18,9 @@ class BlogRepository final : public BlogStore {
 
   // Users
   RepositoryResult<bool> CreateUser(const model::User& user) override;
-  RepositoryResult<model::User> FindUserByUsername(
-      const std::string& username) override;
+  RepositoryResult<model::User> FindUserByUsername(const std::string& username) override;
   RepositoryResult<bool> UpdateUserEmail(const std::string& username,
-                                          const std::string& email) override;
+                                         const std::string& email) override;
   RepositoryResult<bool> DeleteUser(const std::string& username) override;
 
   // Posts
@@ -34,8 +32,7 @@ class BlogRepository final : public BlogStore {
       const model::PostQuery& query = {}) override;
   RepositoryResult<bool> InitializeSchema();
   // Queries
-  RepositoryResult<std::vector<std::pair<std::string, int>>>
-  CountPostsPerAuthor() override;
+  RepositoryResult<std::vector<std::pair<std::string, int>>> CountPostsPerAuthor() override;
   RepositoryResult<bool> Ping() override;
 
   // Exposes the connection pool (used by tests and tools).

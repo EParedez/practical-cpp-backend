@@ -35,8 +35,7 @@ inline std::optional<std::string> ValidatePost(const Post& post) {
   if (post.published_date.size() > kMaxPublishedDateLength) {
     return "published_date must contain at most 64 UTF-8 bytes";
   }
-  if (!post.published_date.empty() &&
-      !ParseUtcTimestamp(post.published_date).has_value()) {
+  if (!post.published_date.empty() && !ParseUtcTimestamp(post.published_date).has_value()) {
     return "published_date must use UTC format YYYY-MM-DDTHH:MM:SSZ";
   }
   if (post.tags.size() > kMaxTags) {
@@ -51,16 +50,13 @@ inline std::optional<std::string> ValidatePost(const Post& post) {
     return "a post may contain at most 100 embedded comments";
   }
   for (const auto& comment : post.comments) {
-    if (comment.user.empty() ||
-        comment.user.size() > kMaxCommentUserLength) {
+    if (comment.user.empty() || comment.user.size() > kMaxCommentUserLength) {
       return "comment users must contain between 1 and 100 UTF-8 bytes";
     }
-    if (comment.content.empty() ||
-        comment.content.size() > kMaxCommentContentLength) {
+    if (comment.content.empty() || comment.content.size() > kMaxCommentContentLength) {
       return "comment content must contain between 1 and 16384 UTF-8 bytes";
     }
-    if (!comment.timestamp.empty() &&
-        !ParseUtcTimestamp(comment.timestamp).has_value()) {
+    if (!comment.timestamp.empty() && !ParseUtcTimestamp(comment.timestamp).has_value()) {
       return "comment timestamps must use UTC format YYYY-MM-DDTHH:MM:SSZ";
     }
   }
@@ -71,20 +67,16 @@ inline std::optional<std::string> ValidatePostQuery(const PostQuery& query) {
   if (query.limit < 1 || query.limit > 100 || query.offset < 0) {
     return "limit must be between 1 and 100 and offset must be non-negative";
   }
-  if (query.author &&
-      (query.author->empty() || query.author->size() > kMaxAuthorLength)) {
+  if (query.author && (query.author->empty() || query.author->size() > kMaxAuthorLength)) {
     return "invalid author filter";
   }
-  if (query.tag &&
-      (query.tag->empty() || query.tag->size() > kMaxTagLength)) {
+  if (query.tag && (query.tag->empty() || query.tag->size() > kMaxTagLength)) {
     return "invalid tag filter";
   }
-  const auto from = query.published_from
-                        ? ParseUtcTimestamp(*query.published_from)
-                        : std::optional<std::chrono::system_clock::time_point>{};
-  const auto to = query.published_to
-                      ? ParseUtcTimestamp(*query.published_to)
-                      : std::optional<std::chrono::system_clock::time_point>{};
+  const auto from = query.published_from ? ParseUtcTimestamp(*query.published_from)
+                                         : std::optional<std::chrono::system_clock::time_point>{};
+  const auto to = query.published_to ? ParseUtcTimestamp(*query.published_to)
+                                     : std::optional<std::chrono::system_clock::time_point>{};
   if ((query.published_from && !from) || (query.published_to && !to) ||
       (from && to && *from > *to)) {
     return "published_from and published_to must be ordered UTC timestamps";

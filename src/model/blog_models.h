@@ -10,7 +10,8 @@ namespace blog::model {
 struct User {
   std::string username;
   std::string email;
-  std::string password;  // hashed
+  // Plaintext input accepted only by CreateUser. Read operations never populate it.
+  std::string password;
   std::vector<std::pair<std::string, std::string>> profiles;  // platform, handle
 };
 

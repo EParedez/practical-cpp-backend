@@ -1,4 +1,5 @@
 #include <grpcpp/grpcpp.h>
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -40,8 +41,8 @@ int main(int argc, char** argv) {
       std::cerr << "GetPost failed: " << status.error_message() << std::endl;
       return 1;
     }
-    std::cout << "Got post: [" << full.post().title() << "] by "
-              << full.post().author() << std::endl;
+    std::cout << "Got post: [" << full.post().title() << "] by " << full.post().author()
+              << std::endl;
 
     // --- GetAllPosts ---
     grpc::ClientContext ctx3;

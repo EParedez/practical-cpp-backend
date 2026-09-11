@@ -1,5 +1,6 @@
 #include "config/app_config.h"
 
+#include <cctype>
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
@@ -8,8 +9,7 @@
 namespace blog::config {
 namespace {
 
-int ParseInteger(const std::string& name, const std::string& raw, int minimum,
-                 int maximum) {
+int ParseInteger(const std::string& name, const std::string& raw, int minimum, int maximum) {
   try {
     std::size_t parsed = 0;
     const long value = std::stol(raw, &parsed);
@@ -18,22 +18,33 @@ int ParseInteger(const std::string& name, const std::string& raw, int minimum,
     }
     return static_cast<int>(value);
   } catch (const std::exception&) {
-    throw std::invalid_argument(name + " must be an integer between " +
-                                std::to_string(minimum) + " and " +
-                                std::to_string(maximum));
+    throw std::invalid_argument(name + " must be an integer between " + std::to_string(minimum) +
+                                " and " + std::to_string(maximum));
   }
 }
 
-void AssignString(const EnvironmentReader& reader, const std::string& name,
-                  std::string* target) {
+void AssignString(const EnvironmentReader& reader, const std::string& name, std::string* target) {
   if (const auto value = reader(name)) *target = *value;
 }
 
-void AssignInteger(const EnvironmentReader& reader, const std::string& name,
-                   int minimum, int maximum, int* target) {
+void AssignInteger(const EnvironmentReader& reader, const std::string& name, int minimum,
+                   int maximum, int* target) {
   if (const auto value = reader(name)) {
     *target = ParseInteger(name, *value, minimum, maximum);
   }
+}
+
+bool ParseBoolean(const std::string& name, std::string raw) {
+  for (auto& character : raw) {
+    character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  }
+  if (raw == "true" || raw == "1" || raw == "yes") return true;
+  if (raw == "false" || raw == "0" || raw == "no") return false;
+  throw std::invalid_argument(name + " must be true or false");
+}
+
+void AssignBoolean(const EnvironmentReader& reader, const std::string& name, bool* target) {
+  if (const auto value = reader(name)) *target = ParseBoolean(name, *value);
 }
 
 }  // namespace
@@ -50,34 +61,33 @@ AppConfig LoadFromEnvironment(const EnvironmentReader& reader) {
   AppConfig config;
   AssignString(reader, "MONGODB_URI", &config.mongodb_uri);
   AssignString(reader, "BLOG_DATABASE", &config.database_name);
-  AssignInteger(reader, "MONGO_MIN_POOL_SIZE", 0, 1000,
-                &config.mongo_min_pool_size);
-  AssignInteger(reader, "MONGO_MAX_POOL_SIZE", 1, 1000,
-                &config.mongo_max_pool_size);
+  AssignInteger(reader, "MONGO_MIN_POOL_SIZE", 0, 1000, &config.mongo_min_pool_size);
+  AssignInteger(reader, "MONGO_MAX_POOL_SIZE", 1, 1000, &config.mongo_max_pool_size);
   AssignInteger(reader, "MONGO_SERVER_SELECTION_TIMEOUT_MS", 100, 300'000,
                 &config.mongo_server_selection_timeout_ms);
-  AssignInteger(reader, "MONGO_CONNECT_TIMEOUT_MS", 100, 300'000,
-                &config.mongo_connect_timeout_ms);
+  AssignInteger(reader, "MONGO_CONNECT_TIMEOUT_MS", 100, 300'000, &config.mongo_connect_timeout_ms);
   AssignString(reader, "HTTP_HOST", &config.http_host);
   AssignString(reader, "GRPC_ADDRESS", &config.grpc_address);
   AssignString(reader, "GRPC_METRICS_HOST", &config.grpc_metrics_host);
   AssignInteger(reader, "PORT", 1, 65535, &config.http_port);
-  AssignInteger(reader, "GRPC_METRICS_PORT", 1, 65535,
-                &config.grpc_metrics_port);
-  AssignInteger(reader, "CACHE_CAPACITY", 0, 1'000'000,
-                &config.cache_capacity);
-  AssignInteger(reader, "CACHE_TTL_SECONDS", 1, 86'400,
-                &config.cache_ttl_seconds);
-  AssignInteger(reader, "HTTP_READ_TIMEOUT_SECONDS", 1, 3600,
-                &config.http_read_timeout_seconds);
-  AssignInteger(reader, "HTTP_WRITE_TIMEOUT_SECONDS", 1, 3600,
-                &config.http_write_timeout_seconds);
+  AssignInteger(reader, "GRPC_METRICS_PORT", 1, 65535, &config.grpc_metrics_port);
+  AssignInteger(reader, "CACHE_CAPACITY", 0, 1'000'000, &config.cache_capacity);
+  AssignInteger(reader, "CACHE_TTL_SECONDS", 1, 86'400, &config.cache_ttl_seconds);
+  AssignInteger(reader, "HTTP_READ_TIMEOUT_SECONDS", 1, 3600, &config.http_read_timeout_seconds);
+  AssignInteger(reader, "HTTP_WRITE_TIMEOUT_SECONDS", 1, 3600, &config.http_write_timeout_seconds);
   AssignInteger(reader, "HTTP_KEEP_ALIVE_TIMEOUT_SECONDS", 1, 3600,
                 &config.http_keep_alive_timeout_seconds);
-  AssignInteger(reader, "HTTP_KEEP_ALIVE_MAX_COUNT", 1, 10'000,
-                &config.http_keep_alive_max_count);
-  AssignInteger(reader, "SHUTDOWN_GRACE_SECONDS", 1, 300,
-                &config.shutdown_grace_seconds);
+  AssignInteger(reader, "HTTP_KEEP_ALIVE_MAX_COUNT", 1, 10'000, &config.http_keep_alive_max_count);
+  AssignInteger(reader, "SHUTDOWN_GRACE_SECONDS", 1, 300, &config.shutdown_grace_seconds);
+  AssignBoolean(reader, "AUTH_REQUIRED", &config.auth_required);
+  AssignBoolean(reader, "PROTECT_READ_ENDPOINTS", &config.protect_read_endpoints);
+  AssignString(reader, "BLOG_READER_TOKEN", &config.reader_token);
+  AssignString(reader, "BLOG_WRITER_TOKEN", &config.writer_token);
+  AssignString(reader, "BLOG_ADMIN_TOKEN", &config.admin_token);
+  AssignInteger(reader, "RATE_LIMIT_PER_MINUTE", 0, 1'000'000, &config.rate_limit_per_minute);
+  AssignString(reader, "CORS_ALLOWED_ORIGIN", &config.cors_allowed_origin);
+  AssignString(reader, "TLS_CERTIFICATE_FILE", &config.tls_certificate_file);
+  AssignString(reader, "TLS_PRIVATE_KEY_FILE", &config.tls_private_key_file);
   Validate(config);
   return config;
 }
@@ -87,8 +97,7 @@ void ApplyHttpCommandLine(AppConfig& config, int argc, char** argv) {
   if (argc > 2) config.http_port = ParseInteger("HTTP port", argv[2], 1, 65535);
   if (argc > 3) config.mongodb_uri = argv[3];
   if (argc > 4) {
-    throw std::invalid_argument(
-        "usage: blog_http_server [host] [port] [mongodb_uri]");
+    throw std::invalid_argument("usage: blog_http_server [host] [port] [mongodb_uri]");
   }
   Validate(config);
 }
@@ -97,8 +106,7 @@ void ApplyGrpcCommandLine(AppConfig& config, int argc, char** argv) {
   if (argc > 1) config.grpc_address = argv[1];
   if (argc > 2) config.mongodb_uri = argv[2];
   if (argc > 3) {
-    throw std::invalid_argument(
-        "usage: blog_grpc_server [address] [mongodb_uri]");
+    throw std::invalid_argument("usage: blog_grpc_server [address] [mongodb_uri]");
   }
   Validate(config);
 }
@@ -116,8 +124,7 @@ void Validate(const AppConfig& config) {
   if (config.http_port < 1 || config.http_port > 65535) {
     throw std::invalid_argument("PORT must be between 1 and 65535");
   }
-  if (config.grpc_address.empty() ||
-      config.grpc_address.find(':') == std::string::npos) {
+  if (config.grpc_address.empty() || config.grpc_address.find(':') == std::string::npos) {
     throw std::invalid_argument("GRPC_ADDRESS must contain a host and port");
   }
   if (config.grpc_metrics_host.empty()) {
@@ -130,8 +137,26 @@ void Validate(const AppConfig& config) {
     throw std::invalid_argument("CACHE_CAPACITY must not be negative");
   }
   if (config.mongo_min_pool_size > config.mongo_max_pool_size) {
+    throw std::invalid_argument("MONGO_MIN_POOL_SIZE must not exceed MONGO_MAX_POOL_SIZE");
+  }
+  if (config.auth_required && config.writer_token.empty() && config.admin_token.empty()) {
+    throw std::invalid_argument("AUTH_REQUIRED needs BLOG_WRITER_TOKEN or BLOG_ADMIN_TOKEN");
+  }
+  const auto validate_token = [](const std::string& name, const std::string& token) {
+    if (!token.empty() && token.size() < 32) {
+      throw std::invalid_argument(name + " must contain at least 32 characters");
+    }
+  };
+  validate_token("BLOG_READER_TOKEN", config.reader_token);
+  validate_token("BLOG_WRITER_TOKEN", config.writer_token);
+  validate_token("BLOG_ADMIN_TOKEN", config.admin_token);
+  if (config.protect_read_endpoints && config.reader_token.empty() && config.writer_token.empty() &&
+      config.admin_token.empty()) {
+    throw std::invalid_argument("PROTECT_READ_ENDPOINTS needs at least one configured token");
+  }
+  if (config.tls_certificate_file.empty() != config.tls_private_key_file.empty()) {
     throw std::invalid_argument(
-        "MONGO_MIN_POOL_SIZE must not exceed MONGO_MAX_POOL_SIZE");
+        "TLS_CERTIFICATE_FILE and TLS_PRIVATE_KEY_FILE must be configured together");
   }
 }
 

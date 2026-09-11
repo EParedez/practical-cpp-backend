@@ -55,16 +55,13 @@ std::string Timestamp() {
 
 }  // namespace
 
-void Log(const std::string& level, const std::string& event,
-         const LogFields& fields) {
+void Log(const std::string& level, const std::string& event, const LogFields& fields) {
   static std::mutex log_mutex;
   std::lock_guard<std::mutex> lock(log_mutex);
-  std::clog << "{\"timestamp\":\"" << Timestamp() << "\",\"level\":\""
-            << EscapeJson(level) << "\",\"event\":\"" << EscapeJson(event)
-            << '"';
+  std::clog << "{\"timestamp\":\"" << Timestamp() << "\",\"level\":\"" << EscapeJson(level)
+            << "\",\"event\":\"" << EscapeJson(event) << '"';
   for (const auto& [name, value] : fields) {
-    std::clog << ",\"" << EscapeJson(name) << "\":\"" << EscapeJson(value)
-              << '"';
+    std::clog << ",\"" << EscapeJson(name) << "\":\"" << EscapeJson(value) << '"';
   }
   std::clog << "}" << std::endl;
 }
@@ -127,8 +124,8 @@ std::string Metrics::ToPrometheus() const {
          << "# TYPE blog_http_errors_total counter\n"
          << "blog_http_errors_total " << http_errors_.load() << "\n"
          << "# TYPE blog_http_request_duration_milliseconds_total counter\n"
-         << "blog_http_request_duration_milliseconds_total "
-         << http_duration_ms_total_.load() << "\n"
+         << "blog_http_request_duration_milliseconds_total " << http_duration_ms_total_.load()
+         << "\n"
          << "# TYPE blog_grpc_requests_total counter\n"
          << "blog_grpc_requests_total " << grpc_requests_.load() << "\n"
          << "# TYPE blog_grpc_errors_total counter\n"
@@ -144,8 +141,7 @@ std::string Metrics::ToPrometheus() const {
          << "# TYPE blog_cache_evictions_total counter\n"
          << "blog_cache_evictions_total " << cache_evictions_.load() << "\n"
          << "# TYPE blog_cache_invalidations_total counter\n"
-         << "blog_cache_invalidations_total " << cache_invalidations_.load()
-         << "\n";
+         << "blog_cache_invalidations_total " << cache_invalidations_.load() << "\n";
   return output.str();
 }
 

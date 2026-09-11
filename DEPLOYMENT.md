@@ -90,3 +90,10 @@ the builder stage, then copies only the runtime artifacts into Ubuntu 24.04. The
 MongoDB C++ driver is pinned to 4.5.0, while Compose pins MongoDB to 8.0 and Nginx to
 1.27. Application containers run as UID/GID 10001 instead of root. `.dockerignore`
 excludes repository metadata, local agent state, build output, and logs.
+
+## Production deployment
+
+Local Compose disables authentication by default. Before exposing the service, enable
+authentication, inject unique role tokens from a secret manager, and terminate TLS as
+described in [Security Model](SECURITY.md). The supported AWS release target and
+tested rollback procedure are documented in [Release and Rollback](RELEASE.md).

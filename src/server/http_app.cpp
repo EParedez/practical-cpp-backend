@@ -2,17 +2,16 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
-#include <cstdint>
-#include <exception>
-#include <limits>
-#include <string>
-
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/exception/exception.hpp>
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/types.hpp>
+#include <cctype>
+#include <cstdint>
+#include <exception>
+#include <limits>
+#include <string>
 
 #include "cache/post_cache.h"
 #include "common/observability.h"
@@ -24,8 +23,7 @@ using bsoncxx::builder::basic::make_document;
 namespace blog::server {
 namespace {
 
-constexpr std::size_t kMaxRequestBodyLength =
-    model::kMaxContentLength + 16 * 1024;
+constexpr std::size_t kMaxRequestBodyLength = model::kMaxContentLength + 16 * 1024;
 constexpr std::size_t kMaxHeaderCount = 50;
 constexpr std::size_t kMaxCombinedHeaderLength = 16 * 1024;
 constexpr std::int64_t kDefaultPageSize = 20;
@@ -35,13 +33,10 @@ std::string RequestId(const httplib::Request& request) {
   if (request.has_header("X-Request-ID")) {
     const auto supplied = request.get_header_value("X-Request-ID");
     const bool safe = !supplied.empty() && supplied.size() <= 128 &&
-                      std::all_of(
-                          supplied.begin(), supplied.end(),
-                          [](unsigned char character) {
-                            return std::isalnum(character) != 0 ||
-                                   character == '-' || character == '_' ||
-                                   character == '.';
-                          });
+                      std::all_of(supplied.begin(), supplied.end(), [](unsigned char character) {
+                        return std::isalnum(character) != 0 || character == '-' ||
+                               character == '_' || character == '.';
+                      });
     if (safe) return supplied;
   }
   static std::atomic<std::uint64_t> sequence{0};
@@ -53,40 +48,32 @@ bool HasJsonContentType(const httplib::Request& request) {
          request.get_header_value("Content-Type").find("application/json") == 0;
 }
 
-void SetJson(httplib::Response& response, const bsoncxx::document::view& value,
-             int status = 200) {
+void SetJson(httplib::Response& response, const bsoncxx::document::view& value, int status = 200) {
   response.status = status;
-  response.set_content(
-      bsoncxx::to_json(value, bsoncxx::ExtendedJsonMode::k_relaxed),
-      "application/json");
+  response.set_content(bsoncxx::to_json(value, bsoncxx::ExtendedJsonMode::k_relaxed),
+                       "application/json");
 }
 
-void SetJson(httplib::Response& response, const bsoncxx::array::view& value,
-             int status = 200) {
+void SetJson(httplib::Response& response, const bsoncxx::array::view& value, int status = 200) {
   response.status = status;
-  response.set_content(
-      bsoncxx::to_json(value, bsoncxx::ExtendedJsonMode::k_relaxed),
-      "application/json");
+  response.set_content(bsoncxx::to_json(value, bsoncxx::ExtendedJsonMode::k_relaxed),
+                       "application/json");
 }
 
-void SetError(const httplib::Request& request, httplib::Response& response,
-              int status, const std::string& code,
-              const std::string& message) {
+void SetError(const httplib::Request& request, httplib::Response& response, int status,
+              const std::string& code, const std::string& message) {
   const auto request_id = RequestId(request);
   const auto response_request_id = response.get_header_value("X-Request-ID");
-  const auto effective_request_id =
-      response_request_id.empty() ? request_id : response_request_id;
-  const auto body = make_document(kvp(
-      "error", make_document(kvp("code", code), kvp("message", message),
-                             kvp("request_id", effective_request_id))));
+  const auto effective_request_id = response_request_id.empty() ? request_id : response_request_id;
+  const auto body =
+      make_document(kvp("error", make_document(kvp("code", code), kvp("message", message),
+                                               kvp("request_id", effective_request_id))));
   response.set_header("X-Request-ID", effective_request_id);
   SetJson(response, body.view(), status);
 }
 
-void SetRepositoryError(const httplib::Request& request,
-                        httplib::Response& response,
-                        blog::db::RepositoryError error,
-                        const std::string& message) {
+void SetRepositoryError(const httplib::Request& request, httplib::Response& response,
+                        blog::db::RepositoryError error, const std::string& message) {
   using blog::db::RepositoryError;
   switch (error) {
     case RepositoryError::kInvalidArgument:
@@ -99,8 +86,7 @@ void SetRepositoryError(const httplib::Request& request,
       SetError(request, response, 409, "conflict", message);
       return;
     case RepositoryError::kUnavailable:
-      SetError(request, response, 503, "database_unavailable",
-               "database unavailable");
+      SetError(request, response, 503, "database_unavailable", "database unavailable");
       return;
     case RepositoryError::kInternal:
     case RepositoryError::kNone:
@@ -112,19 +98,15 @@ void SetRepositoryError(const httplib::Request& request,
 bsoncxx::document::value PostDocument(const model::Post& post) {
   bsoncxx::builder::basic::array tags;
   for (const auto& tag : post.tags) tags.append(tag);
-  return make_document(kvp("id", post.id), kvp("title", post.title),
-                       kvp("author", post.author),
-                       kvp("content", post.content),
-                       kvp("tags", tags.view()),
+  return make_document(kvp("id", post.id), kvp("title", post.title), kvp("author", post.author),
+                       kvp("content", post.content), kvp("tags", tags.view()),
                        kvp("published_date", post.published_date));
 }
 
-blog::db::RepositoryResult<model::Post> ParsePost(
-    const httplib::Request& request) {
+blog::db::RepositoryResult<model::Post> ParsePost(const httplib::Request& request) {
   if (!HasJsonContentType(request)) {
     return blog::db::RepositoryResult<model::Post>::Failure(
-        blog::db::RepositoryError::kInvalidArgument,
-        "Content-Type must be application/json");
+        blog::db::RepositoryError::kInvalidArgument, "Content-Type must be application/json");
   }
   if (request.body.empty()) {
     return blog::db::RepositoryResult<model::Post>::Failure(
@@ -138,11 +120,10 @@ blog::db::RepositoryResult<model::Post> ParsePost(
 
     const auto title = view["title"];
     const auto author = view["author"];
-    if (!title || title.type() != bsoncxx::type::k_string ||
-        !author || author.type() != bsoncxx::type::k_string) {
+    if (!title || title.type() != bsoncxx::type::k_string || !author ||
+        author.type() != bsoncxx::type::k_string) {
       return blog::db::RepositoryResult<model::Post>::Failure(
-          blog::db::RepositoryError::kInvalidArgument,
-          "title and author must be strings");
+          blog::db::RepositoryError::kInvalidArgument, "title and author must be strings");
     }
     post.title = std::string(title.get_string().value);
     post.author = std::string(author.get_string().value);
@@ -151,8 +132,7 @@ blog::db::RepositoryResult<model::Post> ParsePost(
     if (content) {
       if (content.type() != bsoncxx::type::k_string) {
         return blog::db::RepositoryResult<model::Post>::Failure(
-            blog::db::RepositoryError::kInvalidArgument,
-            "content must be a string");
+            blog::db::RepositoryError::kInvalidArgument, "content must be a string");
       }
       post.content = std::string(content.get_string().value);
     }
@@ -161,25 +141,21 @@ blog::db::RepositoryResult<model::Post> ParsePost(
     if (published_date) {
       if (published_date.type() != bsoncxx::type::k_string) {
         return blog::db::RepositoryResult<model::Post>::Failure(
-            blog::db::RepositoryError::kInvalidArgument,
-            "published_date must be a string");
+            blog::db::RepositoryError::kInvalidArgument, "published_date must be a string");
       }
-      post.published_date =
-          std::string(published_date.get_string().value);
+      post.published_date = std::string(published_date.get_string().value);
     }
 
     const auto tags = view["tags"];
     if (tags) {
       if (tags.type() != bsoncxx::type::k_array) {
         return blog::db::RepositoryResult<model::Post>::Failure(
-            blog::db::RepositoryError::kInvalidArgument,
-            "tags must be an array of strings");
+            blog::db::RepositoryError::kInvalidArgument, "tags must be an array of strings");
       }
       for (const auto& tag : tags.get_array().value) {
         if (tag.type() != bsoncxx::type::k_string) {
           return blog::db::RepositoryResult<model::Post>::Failure(
-              blog::db::RepositoryError::kInvalidArgument,
-              "tags must be an array of strings");
+              blog::db::RepositoryError::kInvalidArgument, "tags must be an array of strings");
         }
         post.tags.emplace_back(tag.get_string().value);
       }
@@ -199,9 +175,8 @@ blog::db::RepositoryResult<model::Post> ParsePost(
   }
 }
 
-bool ParseIntegerParameter(const httplib::Request& request,
-                           const std::string& name, std::int64_t default_value,
-                           std::int64_t* output) {
+bool ParseIntegerParameter(const httplib::Request& request, const std::string& name,
+                           std::int64_t default_value, std::int64_t* output) {
   if (!request.has_param(name)) {
     *output = default_value;
     return true;
@@ -218,73 +193,132 @@ bool ParseIntegerParameter(const httplib::Request& request,
   }
 }
 
+bool IsMutation(const httplib::Request& request) {
+  return request.path.rfind("/posts", 0) == 0 &&
+         (request.method == "POST" || request.method == "PUT" || request.method == "PATCH" ||
+          request.method == "DELETE");
+}
+
+bool IsProtectedRead(const httplib::Request& request, const HttpServerOptions& options) {
+  if (request.path == "/metrics") return true;
+  return options.protect_read_endpoints && request.method == "GET" &&
+         (request.path.rfind("/posts", 0) == 0 || request.path.rfind("/stats", 0) == 0);
+}
+
+void SetAuthError(const httplib::Request& request, httplib::Response& response,
+                  security::AuthError error) {
+  if (error == security::AuthError::kForbidden) {
+    SetError(request, response, 403, "forbidden",
+             "the authenticated role cannot perform this operation");
+    return;
+  }
+  response.set_header("WWW-Authenticate", "Bearer");
+  SetError(request, response, 401, "unauthorized",
+           error == security::AuthError::kMissingCredentials ? "a Bearer token is required"
+                                                             : "the Bearer token is invalid");
+}
+
 }  // namespace
 
 void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
-                         const HttpServerOptions& options,
-                         blog::cache::PostCache* cache) {
+                         const HttpServerOptions& options, blog::cache::PostCache* cache) {
   server.set_payload_max_length(kMaxRequestBodyLength);
   server.set_read_timeout(options.read_timeout_seconds, 0);
   server.set_write_timeout(options.write_timeout_seconds, 0);
   server.set_keep_alive_timeout(options.keep_alive_timeout_seconds);
   server.set_keep_alive_max_count(options.keep_alive_max_count);
-  server.set_pre_routing_handler(
-      [](const httplib::Request& request, httplib::Response& response) {
-        const auto request_id = RequestId(request);
-        response.set_header("X-Request-ID", request_id);
-        observability::Metrics::Instance().BeginHttpRequest(request_id);
-        std::size_t combined_length = 0;
-        for (const auto& [name, value] : request.headers) {
-          combined_length += name.size() + value.size();
-        }
-        if (request.headers.size() > kMaxHeaderCount ||
-            combined_length > kMaxCombinedHeaderLength) {
-          SetError(request, response, 431, "request_headers_too_large",
-                   "request headers exceed the allowed size");
-          return httplib::Server::HandlerResponse::Handled;
-        }
-        return httplib::Server::HandlerResponse::Unhandled;
-      });
-  server.set_logger([](const httplib::Request& request,
-                       const httplib::Response& response) {
+  server.set_pre_routing_handler([options](const httplib::Request& request,
+                                           httplib::Response& response) {
+    const auto request_id = RequestId(request);
+    response.set_header("X-Request-ID", request_id);
+    observability::Metrics::Instance().BeginHttpRequest(request_id);
+    std::size_t combined_length = 0;
+    for (const auto& [name, value] : request.headers) {
+      combined_length += name.size() + value.size();
+    }
+    if (request.headers.size() > kMaxHeaderCount || combined_length > kMaxCombinedHeaderLength) {
+      SetError(request, response, 431, "request_headers_too_large",
+               "request headers exceed the allowed size");
+      return httplib::Server::HandlerResponse::Handled;
+    }
+
+    const auto origin = request.get_header_value("Origin");
+    if (!origin.empty()) {
+      if (options.cors_allowed_origin.empty() ||
+          (options.cors_allowed_origin != "*" && origin != options.cors_allowed_origin)) {
+        SetError(request, response, 403, "cors_origin_denied", "the request origin is not allowed");
+        return httplib::Server::HandlerResponse::Handled;
+      }
+      response.set_header("Access-Control-Allow-Origin", options.cors_allowed_origin);
+      response.set_header("Vary", "Origin");
+      response.set_header("Access-Control-Allow-Headers",
+                          "Authorization, Content-Type, X-Request-ID");
+      response.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+      if (request.method == "OPTIONS") {
+        response.status = 204;
+        return httplib::Server::HandlerResponse::Handled;
+      }
+    }
+
+    const bool mutation = IsMutation(request);
+    const bool protected_read = IsProtectedRead(request, options);
+    if ((mutation || protected_read) && options.authenticator != nullptr) {
+      const auto auth = options.authenticator->Authenticate(
+          request.get_header_value("Authorization"),
+          mutation ? security::Role::kWriter : security::Role::kReader);
+      if (!auth.ok()) {
+        SetAuthError(request, response, auth.error);
+        return httplib::Server::HandlerResponse::Handled;
+      }
+      if (options.rate_limiter != nullptr && !options.rate_limiter->Allow(auth.principal->name)) {
+        response.set_header("Retry-After", "60");
+        SetError(request, response, 429, "rate_limit_exceeded",
+                 "the request rate limit was exceeded");
+        return httplib::Server::HandlerResponse::Handled;
+      }
+    }
+    return httplib::Server::HandlerResponse::Unhandled;
+  });
+  server.set_post_routing_handler([](const httplib::Request&, httplib::Response& response) {
+    response.set_header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+    response.set_header("X-Content-Type-Options", "nosniff");
+    response.set_header("Referrer-Policy", "no-referrer");
+    response.set_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    return httplib::Server::HandlerResponse::Unhandled;
+  });
+  server.set_logger([](const httplib::Request& request, const httplib::Response& response) {
     auto request_id = response.get_header_value("X-Request-ID");
     if (request_id.empty()) request_id = RequestId(request);
-    const auto duration_ms = observability::Metrics::Instance().EndHttpRequest(
-        request_id, response.status);
-    observability::Log(
-        response.status >= 500 ? "error" : "info", "http_request",
-        {{"request_id", request_id},
-         {"method", request.method},
-         {"target", request.target},
-         {"status", std::to_string(response.status)},
-         {"duration_ms", std::to_string(duration_ms)}});
+    const auto duration_ms =
+        observability::Metrics::Instance().EndHttpRequest(request_id, response.status);
+    observability::Log(response.status >= 500 ? "error" : "info", "http_request",
+                       {{"request_id", request_id},
+                        {"method", request.method},
+                        {"target", request.target},
+                        {"status", std::to_string(response.status)},
+                        {"duration_ms", std::to_string(duration_ms)}});
   });
   server.set_exception_handler(
-      [](const httplib::Request& request, httplib::Response& response,
-         std::exception_ptr) {
+      [](const httplib::Request& request, httplib::Response& response, std::exception_ptr) {
         SetError(request, response, 500, "internal_error", "internal error");
       });
-  server.set_error_handler(
-      [](const httplib::Request& request, httplib::Response& response) {
-        if (!response.body.empty()) {
-          return httplib::Server::HandlerResponse::Unhandled;
-        }
-        if (response.status == 404) {
-          SetError(request, response, 404, "route_not_found",
-                   "route not found");
-        } else {
-          SetError(request, response, response.status, "http_error",
-                   "request failed");
-        }
-        return httplib::Server::HandlerResponse::Handled;
-      });
+  server.set_error_handler([](const httplib::Request& request, httplib::Response& response) {
+    if (!response.body.empty()) {
+      return httplib::Server::HandlerResponse::Unhandled;
+    }
+    if (response.status == 404) {
+      SetError(request, response, 404, "route_not_found", "route not found");
+    } else {
+      SetError(request, response, response.status, "http_error", "request failed");
+    }
+    return httplib::Server::HandlerResponse::Handled;
+  });
 
   server.Get("/health", [](const httplib::Request&, httplib::Response& response) {
     response.set_content("ok", "text/plain");
   });
 
-  server.Get("/ready", [&store](const httplib::Request& request,
-                                httplib::Response& response) {
+  server.Get("/ready", [&store](const httplib::Request& request, httplib::Response& response) {
     const auto result = store.Ping();
     if (!result.ok()) {
       SetRepositoryError(request, response, result.error, result.message);
@@ -294,20 +328,16 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
     SetJson(response, body.view());
   });
 
-  server.Get("/metrics", [](const httplib::Request&,
-                            httplib::Response& response) {
+  server.Get("/metrics", [](const httplib::Request&, httplib::Response& response) {
     response.set_content(observability::Metrics::Instance().ToPrometheus(),
                          "text/plain; version=0.0.4");
   });
 
-  server.Get("/posts", [&store](const httplib::Request& request,
-                                httplib::Response& response) {
+  server.Get("/posts", [&store](const httplib::Request& request, httplib::Response& response) {
     model::PostQuery query;
-    if (!ParseIntegerParameter(request, "limit", kDefaultPageSize,
-                               &query.limit) ||
-        !ParseIntegerParameter(request, "offset", 0, &query.offset) ||
-        query.limit < 1 || query.limit > kMaximumPageSize ||
-        query.offset < 0) {
+    if (!ParseIntegerParameter(request, "limit", kDefaultPageSize, &query.limit) ||
+        !ParseIntegerParameter(request, "offset", 0, &query.offset) || query.limit < 1 ||
+        query.limit > kMaximumPageSize || query.offset < 0) {
       SetError(request, response, 400, "invalid_pagination",
                "limit must be between 1 and 100 and offset must be non-negative");
       return;
@@ -337,79 +367,77 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
 
     bsoncxx::builder::basic::array items;
     for (const auto& post : *result.value) items.append(PostDocument(post));
-    const auto body = make_document(kvp("items", items.view()),
-                                    kvp("limit", query.limit),
+    const auto body = make_document(kvp("items", items.view()), kvp("limit", query.limit),
                                     kvp("offset", query.offset),
-                                    kvp("count", static_cast<std::int64_t>(
-                                                     result.value->size())));
+                                    kvp("count", static_cast<std::int64_t>(result.value->size())));
     SetJson(response, body.view());
   });
 
-  server.Post("/posts", [&store, cache](const httplib::Request& request,
-                                        httplib::Response& response) {
-    if (!HasJsonContentType(request)) {
-      SetError(request, response, 415, "unsupported_media_type",
-               "Content-Type must be application/json");
-      return;
-    }
-    auto parsed = ParsePost(request);
-    if (!parsed.ok()) {
-      SetError(request, response, 400, "invalid_post", parsed.message);
-      return;
-    }
-    const auto result = store.AddPost(*parsed.value);
-    if (!result.ok()) {
-      SetRepositoryError(request, response, result.error, result.message);
-      return;
-    }
-    parsed.value->id = *result.value;
-    if (cache) cache->Put(*result.value, *parsed.value);
-    const auto body = make_document(kvp("id", *result.value));
-    SetJson(response, body.view(), 201);
-  });
+  server.Post("/posts",
+              [&store, cache](const httplib::Request& request, httplib::Response& response) {
+                if (!HasJsonContentType(request)) {
+                  SetError(request, response, 415, "unsupported_media_type",
+                           "Content-Type must be application/json");
+                  return;
+                }
+                auto parsed = ParsePost(request);
+                if (!parsed.ok()) {
+                  SetError(request, response, 400, "invalid_post", parsed.message);
+                  return;
+                }
+                const auto result = store.AddPost(*parsed.value);
+                if (!result.ok()) {
+                  SetRepositoryError(request, response, result.error, result.message);
+                  return;
+                }
+                parsed.value->id = *result.value;
+                if (cache) cache->Put(*result.value, *parsed.value);
+                const auto body = make_document(kvp("id", *result.value));
+                SetJson(response, body.view(), 201);
+              });
 
-  server.Get("/posts/:id", [&store, cache](const httplib::Request& request,
-                                           httplib::Response& response) {
-    const auto& id = request.path_params.at("id");
-    if (cache) {
-      if (const auto cached = cache->Get(id)) {
-        const auto body = PostDocument(*cached);
-        SetJson(response, body.view());
-        return;
-      }
-    }
-    const auto result = store.FindPostById(id);
-    if (!result.ok()) {
-      SetRepositoryError(request, response, result.error, result.message);
-      return;
-    }
-    if (cache) cache->Put(id, *result.value);
-    const auto body = PostDocument(*result.value);
-    SetJson(response, body.view());
-  });
+  server.Get("/posts/:id",
+             [&store, cache](const httplib::Request& request, httplib::Response& response) {
+               const auto& id = request.path_params.at("id");
+               if (cache) {
+                 if (const auto cached = cache->Get(id)) {
+                   const auto body = PostDocument(*cached);
+                   SetJson(response, body.view());
+                   return;
+                 }
+               }
+               const auto result = store.FindPostById(id);
+               if (!result.ok()) {
+                 SetRepositoryError(request, response, result.error, result.message);
+                 return;
+               }
+               if (cache) cache->Put(id, *result.value);
+               const auto body = PostDocument(*result.value);
+               SetJson(response, body.view());
+             });
 
-  server.Put("/posts/:id", [&store, cache](const httplib::Request& request,
-                                           httplib::Response& response) {
-    if (!HasJsonContentType(request)) {
-      SetError(request, response, 415, "unsupported_media_type",
-               "Content-Type must be application/json");
-      return;
-    }
-    auto parsed = ParsePost(request);
-    if (!parsed.ok()) {
-      SetError(request, response, 400, "invalid_post", parsed.message);
-      return;
-    }
-    parsed.value->id = request.path_params.at("id");
-    const auto result = store.UpdatePost(*parsed.value);
-    if (!result.ok()) {
-      SetRepositoryError(request, response, result.error, result.message);
-      return;
-    }
-    if (cache) cache->Put(parsed.value->id, *parsed.value);
-    const auto body = PostDocument(*parsed.value);
-    SetJson(response, body.view());
-  });
+  server.Put("/posts/:id",
+             [&store, cache](const httplib::Request& request, httplib::Response& response) {
+               if (!HasJsonContentType(request)) {
+                 SetError(request, response, 415, "unsupported_media_type",
+                          "Content-Type must be application/json");
+                 return;
+               }
+               auto parsed = ParsePost(request);
+               if (!parsed.ok()) {
+                 SetError(request, response, 400, "invalid_post", parsed.message);
+                 return;
+               }
+               parsed.value->id = request.path_params.at("id");
+               const auto result = store.UpdatePost(*parsed.value);
+               if (!result.ok()) {
+                 SetRepositoryError(request, response, result.error, result.message);
+                 return;
+               }
+               if (cache) cache->Put(parsed.value->id, *parsed.value);
+               const auto body = PostDocument(*parsed.value);
+               SetJson(response, body.view());
+             });
 
   server.Delete("/posts/:id", [&store, cache](const httplib::Request& request,
                                               httplib::Response& response) {
@@ -419,24 +447,20 @@ void ConfigureHttpServer(httplib::Server& server, blog::db::BlogStore& store,
       return;
     }
     if (cache) cache->Invalidate(request.path_params.at("id"));
-    const auto body = make_document(kvp("deleted", true),
-                                    kvp("id", request.path_params.at("id")));
+    const auto body = make_document(kvp("deleted", true), kvp("id", request.path_params.at("id")));
     SetJson(response, body.view());
   });
 
   server.Get("/stats/posts-per-author",
-             [&store](const httplib::Request& request,
-                      httplib::Response& response) {
+             [&store](const httplib::Request& request, httplib::Response& response) {
                const auto result = store.CountPostsPerAuthor();
                if (!result.ok()) {
-                 SetRepositoryError(request, response, result.error,
-                                    result.message);
+                 SetRepositoryError(request, response, result.error, result.message);
                  return;
                }
                bsoncxx::builder::basic::array counts;
                for (const auto& [author, count] : *result.value) {
-                 counts.append(make_document(kvp("author", author),
-                                             kvp("count", count)));
+                 counts.append(make_document(kvp("author", author), kvp("count", count)));
                }
                SetJson(response, counts.view());
              });

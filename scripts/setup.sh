@@ -12,7 +12,13 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 echo "==> Installing dependencies..."
-brew install mongo-cxx-driver grpc googletest
+brew install cmake openssl@3 mongo-cxx-driver grpc protobuf googletest
+
+if ! command -v mongod >/dev/null 2>&1; then
+  echo "==> Installing MongoDB Community Edition..."
+  brew tap mongodb/brew
+  brew install mongodb-community@8.0
+fi
 
 echo "==> Setting up a local MongoDB (data dir: /tmp/practical-cpp-mongo)..."
 if ! pgrep -x mongod >/dev/null 2>&1; then

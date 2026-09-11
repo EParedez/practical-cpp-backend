@@ -17,11 +17,10 @@ namespace {
 
 class RpcCall {
  public:
-  RpcCall(grpc::ServerContext* context, std::string operation)
-      : operation_(std::move(operation)) {
+  RpcCall(grpc::ServerContext* context, std::string operation) : operation_(std::move(operation)) {
     const auto metadata = context->client_metadata().find("x-request-id");
-    if (metadata != context->client_metadata().end() &&
-        !metadata->second.empty() && metadata->second.size() <= 128) {
+    if (metadata != context->client_metadata().end() && !metadata->second.empty() &&
+        metadata->second.size() <= 128) {
       request_id_.assign(metadata->second.data(), metadata->second.size());
     } else {
       static std::atomic<std::uint64_t> sequence{0};
@@ -36,28 +35,25 @@ class RpcCall {
                                  .count();
     const bool failed = !status.ok();
     observability::Metrics::Instance().RecordGrpcRequest(failed);
-    observability::Log(
-        status.error_code() == grpc::StatusCode::INTERNAL ||
-                status.error_code() == grpc::StatusCode::UNAVAILABLE
-            ? "error"
-            : "info",
-        "grpc_request",
-        {{"request_id", request_id_},
-         {"operation", operation_},
-         {"status", std::to_string(status.error_code())},
-         {"duration_ms", std::to_string(duration_ms)}});
+    observability::Log(status.error_code() == grpc::StatusCode::INTERNAL ||
+                               status.error_code() == grpc::StatusCode::UNAVAILABLE
+                           ? "error"
+                           : "info",
+                       "grpc_request",
+                       {{"request_id", request_id_},
+                        {"operation", operation_},
+                        {"status", std::to_string(status.error_code())},
+                        {"duration_ms", std::to_string(duration_ms)}});
     return status;
   }
 
  private:
   std::string operation_;
   std::string request_id_;
-  std::chrono::steady_clock::time_point started_{
-      std::chrono::steady_clock::now()};
+  std::chrono::steady_clock::time_point started_{std::chrono::steady_clock::now()};
 };
 
-grpc::Status RepositoryStatus(const blog::db::RepositoryError error,
-                              const std::string& message) {
+grpc::Status RepositoryStatus(const blog::db::RepositoryError error, const std::string& message) {
   using blog::db::RepositoryError;
   switch (error) {
     case RepositoryError::kInvalidArgument:
@@ -85,12 +81,38 @@ void CopyPost(const model::Post& source, blog::Post* destination) {
   for (const auto& tag : source.tags) destination->add_tags(tag);
 }
 
+grpc::Status Authorize(grpc::ServerContext* context, security::Authenticator* authenticator,
+                       security::FixedWindowRateLimiter* rate_limiter, security::Role required_role,
+                       bool enforce) {
+  if (!enforce || authenticator == nullptr) return grpc::Status::OK;
+  std::string authorization;
+  const auto metadata = context->client_metadata().find("authorization");
+  if (metadata != context->client_metadata().end()) {
+    authorization.assign(metadata->second.data(), metadata->second.size());
+  }
+  const auto auth = authenticator->Authenticate(authorization, required_role);
+  if (!auth.ok()) {
+    if (auth.error == security::AuthError::kForbidden) {
+      return {grpc::StatusCode::PERMISSION_DENIED,
+              "the authenticated role cannot perform this operation"};
+    }
+    return {grpc::StatusCode::UNAUTHENTICATED, "a valid Bearer token is required"};
+  }
+  if (rate_limiter != nullptr && !rate_limiter->Allow(auth.principal->name)) {
+    return {grpc::StatusCode::RESOURCE_EXHAUSTED, "the request rate limit was exceeded"};
+  }
+  return grpc::Status::OK;
+}
+
 }  // namespace
 
-grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context,
-                                      const blog::Post* post,
+grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context, const blog::Post* post,
                                       blog::PostResponse* response) {
   RpcCall call(context, "AddPost");
+  if (auto status =
+          Authorize(context, authenticator_, rate_limiter_, security::Role::kWriter, true);
+      !status.ok())
+    return call.Finish(status);
   model::Post model;
   model.title = post->title();
   model.author = post->author();
@@ -102,8 +124,7 @@ grpc::Status BlogServiceImpl::AddPost(grpc::ServerContext* context,
   }
 
   if (const auto error = blog::model::ValidatePost(model)) {
-    return call.Finish(
-        grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, *error));
+    return call.Finish(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, *error));
   }
 
   auto result = store_.AddPost(model);
@@ -120,6 +141,10 @@ grpc::Status BlogServiceImpl::GetPost(grpc::ServerContext* context,
                                       const blog::PostResponse* request,
                                       blog::FullPostResponse* response) {
   RpcCall call(context, "GetPost");
+  if (auto status = Authorize(context, authenticator_, rate_limiter_, security::Role::kReader,
+                              protect_reads_);
+      !status.ok())
+    return call.Finish(status);
   if (const auto cached = cache_.Get(request->id())) {
     CopyPost(*cached, response->mutable_post());
     return call.Finish(grpc::Status::OK);
@@ -134,13 +159,15 @@ grpc::Status BlogServiceImpl::GetPost(grpc::ServerContext* context,
   return call.Finish(grpc::Status::OK);
 }
 
-grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context,
-                                         const blog::Post* post,
+grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context, const blog::Post* post,
                                          blog::PostResponse* response) {
   RpcCall call(context, "UpdatePost");
+  if (auto status =
+          Authorize(context, authenticator_, rate_limiter_, security::Role::kWriter, true);
+      !status.ok())
+    return call.Finish(status);
   if (post->id().empty()) {
-    return call.Finish(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                                    "post id is required"));
+    return call.Finish(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "post id is required"));
   }
 
   model::Post model;
@@ -155,8 +182,7 @@ grpc::Status BlogServiceImpl::UpdatePost(grpc::ServerContext* context,
   }
 
   if (const auto error = blog::model::ValidatePost(model)) {
-    return call.Finish(
-        grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, *error));
+    return call.Finish(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, *error));
   }
 
   auto result = store_.UpdatePost(model);
@@ -172,6 +198,10 @@ grpc::Status BlogServiceImpl::DeletePost(grpc::ServerContext* context,
                                          const blog::PostResponse* request,
                                          blog::PostResponse* response) {
   RpcCall call(context, "DeletePost");
+  if (auto status =
+          Authorize(context, authenticator_, rate_limiter_, security::Role::kWriter, true);
+      !status.ok())
+    return call.Finish(status);
   auto result = store_.DeletePost(request->id());
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
@@ -181,10 +211,13 @@ grpc::Status BlogServiceImpl::DeletePost(grpc::ServerContext* context,
   return call.Finish(grpc::Status::OK);
 }
 
-grpc::Status BlogServiceImpl::GetAllPosts(grpc::ServerContext* context,
-                                          const blog::PostResponse* request,
+grpc::Status BlogServiceImpl::GetAllPosts(grpc::ServerContext* context, const blog::PostResponse*,
                                           blog::AllPostsResponse* response) {
   RpcCall call(context, "GetAllPosts");
+  if (auto status = Authorize(context, authenticator_, rate_limiter_, security::Role::kReader,
+                              protect_reads_);
+      !status.ok())
+    return call.Finish(status);
   auto result = store_.GetAllPosts();
   if (!result.ok()) {
     return call.Finish(RepositoryStatus(result.error, result.message));
@@ -199,6 +232,10 @@ grpc::Status BlogServiceImpl::ListPosts(grpc::ServerContext* context,
                                         const blog::ListPostsRequest* request,
                                         blog::AllPostsResponse* response) {
   RpcCall call(context, "ListPosts");
+  if (auto status = Authorize(context, authenticator_, rate_limiter_, security::Role::kReader,
+                              protect_reads_);
+      !status.ok())
+    return call.Finish(status);
   model::PostQuery query;
   query.limit = request->limit() == 0 ? 20 : request->limit();
   query.offset = request->offset();

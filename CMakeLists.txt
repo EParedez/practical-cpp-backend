@@ -14,10 +14,23 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 option(BUILD_TESTS "Build unit and integration tests" ON)
 option(BUILD_SERVER "Build the standalone HTTP/HTTPS server" ON)
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(ENABLE_WARNINGS_AS_ERRORS "Treat project compiler warnings as errors" OFF)
+option(ENABLE_COVERAGE "Enable GCC/Clang coverage instrumentation" OFF)
 
 if(ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+  if(ENABLE_WARNINGS_AS_ERRORS)
+    add_compile_options(-Werror)
+  endif()
+  if(ENABLE_COVERAGE)
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+  endif()
 endif()
 
 find_package(mongocxx REQUIRED)
@@ -25,6 +38,7 @@ find_package(bsoncxx REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -60,6 +74,7 @@ add_library(blogcore STATIC
   src/common/observability.cpp
   src/config/app_config.cpp
   src/model/time_utils.cpp
+  src/auth/auth.cpp
   src/cache/lru_cache.cpp
   src/cache/lfu_cache.cpp
   src/cache/rr_cache.cpp
@@ -69,6 +84,7 @@ add_library(blogcore STATIC
 
 target_link_libraries(blogcore
   PUBLIC mongo::mongocxx_shared
+  PUBLIC OpenSSL::Crypto
 )
 
 target_include_directories(blogcore PUBLIC src)
@@ -106,6 +122,11 @@ add_library(bloghttp
   src/server/http_app.cpp
 )
 target_link_libraries(bloghttp PUBLIC blogcore)
+target_link_libraries(bloghttp PUBLIC OpenSSL::SSL)
+target_compile_definitions(bloghttp PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+if(APPLE)
+  target_link_libraries(bloghttp PUBLIC "-framework Security" "-framework CoreFoundation")
+endif()
 target_include_directories(bloghttp PUBLIC src/server src)
 
 if(BUILD_SERVER)
@@ -113,6 +134,11 @@ if(BUILD_SERVER)
     src/server/http_server_main.cpp
   )
   target_link_libraries(blog_http_server PRIVATE bloghttp)
+endif()
+
+install(TARGETS blog_grpc_server blog_grpc_client RUNTIME DESTINATION bin)
+if(BUILD_SERVER)
+  install(TARGETS blog_http_server RUNTIME DESTINATION bin)
 endif()
 
 # --- Tests ----------------------------------------------------------------

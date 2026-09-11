@@ -1,6 +1,5 @@
-#include <gtest/gtest.h>
-
 #include <grpcpp/grpcpp.h>
+#include <gtest/gtest.h>
 
 #include <atomic>
 #include <cstdint>
@@ -20,33 +19,28 @@ class ServiceTestStore final : public blog::db::BlogStore {
     return blog::db::RepositoryResult<T>::Failure(error, "store failure");
   }
 
-  blog::db::RepositoryResult<bool> CreateUser(
-      const blog::model::User&) override {
+  blog::db::RepositoryResult<bool> CreateUser(const blog::model::User&) override {
     return Failure<bool>();
   }
 
-  blog::db::RepositoryResult<blog::model::User> FindUserByUsername(
-      const std::string&) override {
+  blog::db::RepositoryResult<blog::model::User> FindUserByUsername(const std::string&) override {
     return Failure<blog::model::User>();
   }
 
-  blog::db::RepositoryResult<bool> UpdateUserEmail(
-      const std::string&, const std::string&) override {
+  blog::db::RepositoryResult<bool> UpdateUserEmail(const std::string&,
+                                                   const std::string&) override {
     return Failure<bool>();
   }
 
-  blog::db::RepositoryResult<bool> DeleteUser(
-      const std::string&) override {
+  blog::db::RepositoryResult<bool> DeleteUser(const std::string&) override {
     return Failure<bool>();
   }
 
-  blog::db::RepositoryResult<std::string> AddPost(
-      const blog::model::Post&) override {
+  blog::db::RepositoryResult<std::string> AddPost(const blog::model::Post&) override {
     return Failure<std::string>();
   }
 
-  blog::db::RepositoryResult<blog::model::Post> FindPostById(
-      const std::string&) override {
+  blog::db::RepositoryResult<blog::model::Post> FindPostById(const std::string&) override {
     ++find_post_calls;
     if (error != blog::db::RepositoryError::kNone) {
       return Failure<blog::model::Post>();
@@ -54,13 +48,11 @@ class ServiceTestStore final : public blog::db::BlogStore {
     return blog::db::RepositoryResult<blog::model::Post>::Success(post);
   }
 
-  blog::db::RepositoryResult<bool> UpdatePost(
-      const blog::model::Post&) override {
+  blog::db::RepositoryResult<bool> UpdatePost(const blog::model::Post&) override {
     return Failure<bool>();
   }
 
-  blog::db::RepositoryResult<bool> DeletePost(
-      const std::string&) override {
+  blog::db::RepositoryResult<bool> DeletePost(const std::string&) override {
     return Failure<bool>();
   }
 
@@ -70,12 +62,11 @@ class ServiceTestStore final : public blog::db::BlogStore {
     if (error != blog::db::RepositoryError::kNone) {
       return Failure<std::vector<blog::model::Post>>();
     }
-    return blog::db::RepositoryResult<std::vector<blog::model::Post>>::Success(
-        posts);
+    return blog::db::RepositoryResult<std::vector<blog::model::Post>>::Success(posts);
   }
 
-  blog::db::RepositoryResult<std::vector<std::pair<std::string, int>>>
-  CountPostsPerAuthor() override {
+  blog::db::RepositoryResult<std::vector<std::pair<std::string, int>>> CountPostsPerAuthor()
+      override {
     return Failure<std::vector<std::pair<std::string, int>>>();
   }
 
@@ -154,8 +145,7 @@ TEST(BlogServiceTest, ReusesCachedPostForRepeatedReads) {
   ASSERT_TRUE(service.GetPost(&first_context, &request, &first_response).ok());
   grpc::ServerContext second_context;
   blog::FullPostResponse second_response;
-  ASSERT_TRUE(
-      service.GetPost(&second_context, &request, &second_response).ok());
+  ASSERT_TRUE(service.GetPost(&second_context, &request, &second_response).ok());
 
   EXPECT_EQ(store.find_post_calls.load(), 1);
   EXPECT_EQ(second_response.post().title(), "cached");

@@ -6,8 +6,7 @@
 
 namespace blog::model {
 
-std::string FormatUtcTimestamp(
-    std::chrono::system_clock::time_point value) {
+std::string FormatUtcTimestamp(std::chrono::system_clock::time_point value) {
   const auto raw = std::chrono::system_clock::to_time_t(value);
   std::tm utc{};
 #if defined(_WIN32)
@@ -20,8 +19,7 @@ std::string FormatUtcTimestamp(
   return output.str();
 }
 
-std::optional<std::chrono::system_clock::time_point> ParseUtcTimestamp(
-    const std::string& value) {
+std::optional<std::chrono::system_clock::time_point> ParseUtcTimestamp(const std::string& value) {
   if (value.size() != 20 || value.back() != 'Z') return std::nullopt;
   std::tm utc{};
   std::istringstream input(value);
@@ -40,9 +38,6 @@ std::optional<std::chrono::system_clock::time_point> ParseUtcTimestamp(
   return result;
 }
 
-std::string CurrentUtcTimestamp() {
-  return FormatUtcTimestamp(std::chrono::system_clock::now());
-}
+std::string CurrentUtcTimestamp() { return FormatUtcTimestamp(std::chrono::system_clock::now()); }
 
 }  // namespace blog::model
-

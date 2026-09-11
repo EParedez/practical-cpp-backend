@@ -6,8 +6,7 @@
 
 namespace blog::config {
 
-using EnvironmentReader =
-    std::function<std::optional<std::string>(const std::string&)>;
+using EnvironmentReader = std::function<std::optional<std::string>(const std::string&)>;
 
 struct AppConfig {
   std::string mongodb_uri{"mongodb://localhost:27017"};
@@ -28,6 +27,15 @@ struct AppConfig {
   int http_keep_alive_timeout_seconds{10};
   int http_keep_alive_max_count{20};
   int shutdown_grace_seconds{10};
+  bool auth_required{false};
+  bool protect_read_endpoints{false};
+  std::string reader_token;
+  std::string writer_token;
+  std::string admin_token;
+  int rate_limit_per_minute{60};
+  std::string cors_allowed_origin;
+  std::string tls_certificate_file;
+  std::string tls_private_key_file;
 };
 
 AppConfig LoadFromEnvironment();

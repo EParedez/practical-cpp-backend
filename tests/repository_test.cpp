@@ -1,13 +1,12 @@
 #include <gtest/gtest.h>
 
-#include <iostream>
-#include <string>
-#include <unordered_set>
-
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/types.hpp>
+#include <iostream>
 #include <mongocxx/exception/exception.hpp>
+#include <string>
+#include <unordered_set>
 
 #include "db/blog_repository.h"
 #include "model/blog_models.h"
@@ -94,8 +93,7 @@ TEST_F(BlogRepositoryTest, DeletePost) {
   const std::string id = *add_result.value;
 
   EXPECT_TRUE(repo->DeletePost(id).ok());
-  EXPECT_EQ(repo->FindPostById(id).error,
-            blog::db::RepositoryError::kNotFound);
+  EXPECT_EQ(repo->FindPostById(id).error, blog::db::RepositoryError::kNotFound);
 }
 
 TEST_F(BlogRepositoryTest, GetAllPostsReturnsAll) {
@@ -141,7 +139,7 @@ TEST_F(BlogRepositoryTest, CreateAndFindUser) {
   User user;
   user.username = "john_doe";
   user.email = "john@myblogapp.com";
-  user.password = "hashed_password";
+  user.password = "plaintext-password";
   user.profiles.emplace_back("twitter", "@johndoe");
   user.profiles.emplace_back("instagram", "@johndoeig");
 
@@ -150,6 +148,17 @@ TEST_F(BlogRepositoryTest, CreateAndFindUser) {
   auto maybe = repo->FindUserByUsername("john_doe");
   ASSERT_TRUE(maybe.ok()) << maybe.message;
   EXPECT_EQ(maybe.value->email, "john@myblogapp.com");
+  EXPECT_TRUE(maybe.value->password.empty());
+  {
+    auto client = repo->pool().acquire();
+    const auto stored =
+        (*client)["blog_test"]["users"].find_one(bsoncxx::builder::basic::make_document(
+            bsoncxx::builder::basic::kvp("username", "john_doe")));
+    ASSERT_TRUE(stored.has_value());
+    const auto password = std::string(stored->view()["password"].get_string().value);
+    EXPECT_EQ(password.rfind("pbkdf2-sha256$", 0), 0U);
+    EXPECT_EQ(password.find("plaintext-password"), std::string::npos);
+  }
 
   EXPECT_TRUE(repo->UpdateUserEmail("john_doe", "new@myblogapp.com").ok());
   auto updated = repo->FindUserByUsername("john_doe");
@@ -157,8 +166,7 @@ TEST_F(BlogRepositoryTest, CreateAndFindUser) {
   EXPECT_EQ(updated.value->email, "new@myblogapp.com");
 
   EXPECT_TRUE(repo->DeleteUser("john_doe").ok());
-  EXPECT_EQ(repo->FindUserByUsername("john_doe").error,
-            blog::db::RepositoryError::kNotFound);
+  EXPECT_EQ(repo->FindUserByUsername("john_doe").error, blog::db::RepositoryError::kNotFound);
 }
 
 TEST_F(BlogRepositoryTest, RejectsMalformedPostIdWithoutDatabaseLookup) {
@@ -188,10 +196,9 @@ TEST_F(BlogRepositoryTest, StoresPublicationTimestampAsBsonDate) {
   ASSERT_TRUE(result.ok()) << result.message;
 
   auto client = repo->pool().acquire();
-  const auto stored = (*client)["blog_test"]["posts"].find_one(
-      bsoncxx::builder::basic::make_document(
-          bsoncxx::builder::basic::kvp(
-              "_id", bsoncxx::oid{*result.value})));
+  const auto stored =
+      (*client)["blog_test"]["posts"].find_one(bsoncxx::builder::basic::make_document(
+          bsoncxx::builder::basic::kvp("_id", bsoncxx::oid{*result.value})));
   ASSERT_TRUE(stored.has_value());
   EXPECT_EQ(stored->view()["published_date"].type(), bsoncxx::type::k_date);
 }
@@ -221,11 +228,9 @@ TEST_F(BlogRepositoryTest, CreatesRequiredIndexes) {
 
 TEST_F(BlogRepositoryTest, SchemaRejectsMalformedPosts) {
   auto client = repo->pool().acquire();
-  EXPECT_THROW(
-      (*client)["blog_test"]["posts"].insert_one(
-          bsoncxx::builder::basic::make_document(
-              bsoncxx::builder::basic::kvp("title", "missing fields"))),
-      mongocxx::exception);
+  EXPECT_THROW((*client)["blog_test"]["posts"].insert_one(bsoncxx::builder::basic::make_document(
+                   bsoncxx::builder::basic::kvp("title", "missing fields"))),
+               mongocxx::exception);
 }
 
 TEST_F(BlogRepositoryTest, FiltersAndPaginatesInDeterministicOrder) {
@@ -233,10 +238,8 @@ TEST_F(BlogRepositoryTest, FiltersAndPaginatesInDeterministicOrder) {
     Post post;
     post.title = "Post " + std::to_string(index);
     post.author = index == 3 ? "bob" : "alice";
-    post.tags = index == 1 ? std::vector<std::string>{"other"}
-                           : std::vector<std::string>{"cpp"};
-    post.published_date = "2026-09-0" + std::to_string(index + 1) +
-                          "T12:00:00Z";
+    post.tags = index == 1 ? std::vector<std::string>{"other"} : std::vector<std::string>{"cpp"};
+    post.published_date = "2026-09-0" + std::to_string(index + 1) + "T12:00:00Z";
     ASSERT_TRUE(repo->AddPost(post).ok());
   }
   blog::model::PostQuery query;
@@ -257,36 +260,27 @@ TEST(BlogRepositoryMigrationTest, MigratesLegacyStringDatesOnce) {
   {
     auto client = repo.pool().acquire();
     (*client)["blog_migration_test"].drop();
-    (*client)["blog_migration_test"]["posts"].insert_one(
-        bsoncxx::builder::basic::make_document(
-            bsoncxx::builder::basic::kvp("title", "legacy"),
-            bsoncxx::builder::basic::kvp("author", "tester"),
-            bsoncxx::builder::basic::kvp("content", ""),
-            bsoncxx::builder::basic::kvp(
-                "tags", bsoncxx::builder::basic::make_array()),
-            bsoncxx::builder::basic::kvp("published_date",
-                                         "2026-01-02T03:04:05Z"),
-            bsoncxx::builder::basic::kvp(
-                "comments", bsoncxx::builder::basic::make_array(
-                                bsoncxx::builder::basic::make_document(
-                                    bsoncxx::builder::basic::kvp("user", "old"),
-                                    bsoncxx::builder::basic::kvp("content", "text"),
-                                    bsoncxx::builder::basic::kvp(
-                                        "timestamp",
-                                        "2026-01-02T03:04:05Z"))))));
+    (*client)["blog_migration_test"]["posts"].insert_one(bsoncxx::builder::basic::make_document(
+        bsoncxx::builder::basic::kvp("title", "legacy"),
+        bsoncxx::builder::basic::kvp("author", "tester"),
+        bsoncxx::builder::basic::kvp("content", ""),
+        bsoncxx::builder::basic::kvp("tags", bsoncxx::builder::basic::make_array()),
+        bsoncxx::builder::basic::kvp("published_date", "2026-01-02T03:04:05Z"),
+        bsoncxx::builder::basic::kvp(
+            "comments", bsoncxx::builder::basic::make_array(bsoncxx::builder::basic::make_document(
+                            bsoncxx::builder::basic::kvp("user", "old"),
+                            bsoncxx::builder::basic::kvp("content", "text"),
+                            bsoncxx::builder::basic::kvp("timestamp", "2026-01-02T03:04:05Z"))))));
   }
   ASSERT_TRUE(repo.InitializeSchema().ok());
   ASSERT_TRUE(repo.InitializeSchema().ok());
   auto client = repo.pool().acquire();
-  const auto migrated =
-      (*client)["blog_migration_test"]["posts"].find_one({});
+  const auto migrated = (*client)["blog_migration_test"]["posts"].find_one({});
   ASSERT_TRUE(migrated.has_value());
-  EXPECT_EQ(migrated->view()["published_date"].type(),
-            bsoncxx::type::k_date);
+  EXPECT_EQ(migrated->view()["published_date"].type(), bsoncxx::type::k_date);
   const auto comment = *migrated->view()["comments"].get_array().value.begin();
   EXPECT_EQ(comment["timestamp"].type(), bsoncxx::type::k_date);
   EXPECT_EQ((*client)["blog_migration_test"]["_schema_migrations"].count_documents(
-                bsoncxx::builder::basic::make_document(
-                    bsoncxx::builder::basic::kvp("_id", 1))),
+                bsoncxx::builder::basic::make_document(bsoncxx::builder::basic::kvp("_id", 1))),
             1);
 }

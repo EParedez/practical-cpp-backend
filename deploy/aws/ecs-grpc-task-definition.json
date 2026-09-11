@@ -1,0 +1,34 @@
+{
+  "family": "practical-cpp-backend-grpc",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "REPLACE_WITH_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "REPLACE_WITH_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "blog-grpc",
+      "image": "REPLACE_WITH_IMMUTABLE_GHCR_IMAGE_DIGEST",
+      "command": ["./blog_grpc_server"],
+      "essential": true,
+      "portMappings": [{"containerPort": 50051, "protocol": "tcp"}],
+      "environment": [
+        {"name": "GRPC_ADDRESS", "value": "0.0.0.0:50051"},
+        {"name": "AUTH_REQUIRED", "value": "true"}
+      ],
+      "secrets": [
+        {"name": "MONGODB_URI", "valueFrom": "REPLACE_WITH_MONGODB_SECRET_ARN"},
+        {"name": "BLOG_WRITER_TOKEN", "valueFrom": "REPLACE_WITH_WRITER_TOKEN_SECRET_ARN"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/practical-cpp-backend-grpc",
+          "awslogs-region": "REPLACE_WITH_AWS_REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

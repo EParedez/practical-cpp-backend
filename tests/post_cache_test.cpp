@@ -1,11 +1,11 @@
+#include "cache/post_cache.h"
+
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
-
-#include "cache/post_cache.h"
 
 namespace {
 
@@ -38,8 +38,7 @@ TEST(PostCacheTest, SupportsDisabledCapacity) {
 }
 
 TEST(PostCacheTest, ExpiresEntriesAfterTtl) {
-  blog::cache::ThreadSafeLruPostCache cache(1,
-                                            std::chrono::milliseconds(10));
+  blog::cache::ThreadSafeLruPostCache cache(1, std::chrono::milliseconds(10));
   cache.Put("one", Post("one", "first"));
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
   EXPECT_FALSE(cache.Get("one").has_value());
@@ -73,10 +72,8 @@ TEST(PostCacheTest, IsSafeUnderConcurrentAccess) {
 }
 
 TEST(PostCacheTest, RejectsNonPositiveTtl) {
-  EXPECT_THROW(blog::cache::ThreadSafeLruPostCache(
-                   1, std::chrono::milliseconds(0)),
+  EXPECT_THROW(blog::cache::ThreadSafeLruPostCache(1, std::chrono::milliseconds(0)),
                std::invalid_argument);
 }
 
 }  // namespace
-

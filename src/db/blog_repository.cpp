@@ -1,21 +1,21 @@
 #include "db/blog_repository.h"
 
 #include <algorithm>
-#include <cctype>
-#include <chrono>
-#include <unordered_set>
-
 #include <bsoncxx/builder/basic/array.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/exception/exception.hpp>
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/oid.hpp>
 #include <bsoncxx/types.hpp>
+#include <cctype>
+#include <chrono>
 #include <mongocxx/exception/exception.hpp>
 #include <mongocxx/options/find.hpp>
 #include <mongocxx/options/index.hpp>
 #include <mongocxx/options/update.hpp>
+#include <unordered_set>
 
+#include "auth/auth.h"
 #include "common/observability.h"
 #include "model/blog_validation.h"
 #include "model/time_utils.h"
@@ -30,9 +30,7 @@ namespace {
 
 class MongoOperationMetric {
  public:
-  ~MongoOperationMetric() {
-    observability::Metrics::Instance().RecordMongoOperation(!succeeded_);
-  }
+  ~MongoOperationMetric() { observability::Metrics::Instance().RecordMongoOperation(!succeeded_); }
 
   void Succeed() { succeeded_ = true; }
 
@@ -41,24 +39,21 @@ class MongoOperationMetric {
 };
 
 bool IsValidObjectId(const std::string& id) {
-  return id.size() == 24 &&
-         std::all_of(id.begin(), id.end(), [](unsigned char character) {
+  return id.size() == 24 && std::all_of(id.begin(), id.end(), [](unsigned char character) {
            return std::isxdigit(character) != 0;
          });
 }
 
 bsoncxx::types::b_date DateValue(const std::string& value) {
   const auto parsed = model::ParseUtcTimestamp(value);
-  return bsoncxx::types::b_date{
-      parsed.value_or(std::chrono::system_clock::now())};
+  return bsoncxx::types::b_date{parsed.value_or(std::chrono::system_clock::now())};
 }
 
 std::string DateString(const bsoncxx::document::element& element) {
   if (!element) return {};
   if (element.type() == bsoncxx::type::k_date) {
     return model::FormatUtcTimestamp(std::chrono::system_clock::time_point{
-        std::chrono::duration_cast<std::chrono::system_clock::duration>(
-            element.get_date().value)});
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(element.get_date().value)});
   }
   if (element.type() == bsoncxx::type::k_string) {
     return std::string(element.get_string().value);
@@ -69,11 +64,9 @@ std::string DateString(const bsoncxx::document::element& element) {
 template <typename T>
 RepositoryResult<T> MongoFailure(const mongocxx::exception& error) {
   if (error.code().value() == 11000) {
-    return RepositoryResult<T>::Failure(RepositoryError::kConflict,
-                                        "duplicate database value");
+    return RepositoryResult<T>::Failure(RepositoryError::kConflict, "duplicate database value");
   }
-  return RepositoryResult<T>::Failure(RepositoryError::kUnavailable,
-                                      error.what());
+  return RepositoryResult<T>::Failure(RepositoryError::kUnavailable, error.what());
 }
 
 template <typename T>
@@ -83,8 +76,7 @@ RepositoryResult<T> BsonFailure(const bsoncxx::exception& error) {
 
 }  // namespace
 
-BlogRepository::BlogRepository(const std::string& connection_string,
-                               const std::string& db_name)
+BlogRepository::BlogRepository(const std::string& connection_string, const std::string& db_name)
     : db_name_(db_name) {
   // The driver instance must exist before any pool is constructed.
   Instance();
@@ -92,9 +84,9 @@ BlogRepository::BlogRepository(const std::string& connection_string,
 }
 
 RepositoryResult<bool> BlogRepository::CreateUser(const model::User& user) {
-  if (user.username.empty() || user.email.empty()) {
-    return RepositoryResult<bool>::Failure(
-        RepositoryError::kInvalidArgument, "username and email are required");
+  if (user.username.empty() || user.email.empty() || user.password.empty()) {
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
+                                           "username, email, and password are required");
   }
   try {
     MongoOperationMetric metric;
@@ -103,19 +95,15 @@ RepositoryResult<bool> BlogRepository::CreateUser(const model::User& user) {
 
     bsoncxx::builder::basic::array profiles;
     for (const auto& profile : user.profiles) {
-      profiles.append(make_document(
-          kvp("platform", profile.first), kvp("handle", profile.second)));
+      profiles.append(make_document(kvp("platform", profile.first), kvp("handle", profile.second)));
     }
 
     auto result = collection.insert_one(make_document(
-        kvp("username", user.username),
-        kvp("email", user.email),
-        kvp("password", user.password),
-        kvp("profiles", profiles.view())));
+        kvp("username", user.username), kvp("email", user.email),
+        kvp("password", security::HashPassword(user.password)), kvp("profiles", profiles.view())));
     metric.Succeed();
     if (!result || result->result().inserted_count() != 1) {
-      return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
-                                              "user was not inserted");
+      return RepositoryResult<bool>::Failure(RepositoryError::kInternal, "user was not inserted");
     }
     return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
@@ -125,11 +113,10 @@ RepositoryResult<bool> BlogRepository::CreateUser(const model::User& user) {
   }
 }
 
-RepositoryResult<model::User> BlogRepository::FindUserByUsername(
-    const std::string& username) {
+RepositoryResult<model::User> BlogRepository::FindUserByUsername(const std::string& username) {
   if (username.empty()) {
-    return RepositoryResult<model::User>::Failure(
-        RepositoryError::kInvalidArgument, "username is required");
+    return RepositoryResult<model::User>::Failure(RepositoryError::kInvalidArgument,
+                                                  "username is required");
   }
   try {
     MongoOperationMetric metric;
@@ -140,15 +127,13 @@ RepositoryResult<model::User> BlogRepository::FindUserByUsername(
     auto maybe = collection.find_one(filter.view());
     metric.Succeed();
     if (!maybe) {
-      return RepositoryResult<model::User>::Failure(
-          RepositoryError::kNotFound, "user not found");
+      return RepositoryResult<model::User>::Failure(RepositoryError::kNotFound, "user not found");
     }
 
     auto view = maybe->view();
     model::User user;
     user.username = username;
     if (view["email"]) user.email = std::string(view["email"].get_string().value);
-    if (view["password"]) user.password = std::string(view["password"].get_string().value);
     return RepositoryResult<model::User>::Success(std::move(user));
   } catch (const mongocxx::exception& e) {
     return MongoFailure<model::User>(e);
@@ -157,11 +142,11 @@ RepositoryResult<model::User> BlogRepository::FindUserByUsername(
   }
 }
 
-RepositoryResult<bool> BlogRepository::UpdateUserEmail(
-    const std::string& username, const std::string& email) {
+RepositoryResult<bool> BlogRepository::UpdateUserEmail(const std::string& username,
+                                                       const std::string& email) {
   if (username.empty() || email.empty()) {
-    return RepositoryResult<bool>::Failure(
-        RepositoryError::kInvalidArgument, "username and email are required");
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
+                                           "username and email are required");
   }
   try {
     MongoOperationMetric metric;
@@ -169,14 +154,12 @@ RepositoryResult<bool> BlogRepository::UpdateUserEmail(
     auto collection = (*client)[db_name_]["users"];
 
     auto filter = make_document(kvp("username", username));
-    auto update = make_document(
-        kvp("$set", make_document(kvp("email", email))));
+    auto update = make_document(kvp("$set", make_document(kvp("email", email))));
 
     auto result = collection.update_one(filter.view(), update.view());
     metric.Succeed();
     if (!result || result->matched_count() == 0) {
-      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
-                                              "user not found");
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound, "user not found");
     }
     return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
@@ -189,7 +172,7 @@ RepositoryResult<bool> BlogRepository::UpdateUserEmail(
 RepositoryResult<bool> BlogRepository::DeleteUser(const std::string& username) {
   if (username.empty()) {
     return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
-                                            "username is required");
+                                           "username is required");
   }
   try {
     MongoOperationMetric metric;
@@ -200,8 +183,7 @@ RepositoryResult<bool> BlogRepository::DeleteUser(const std::string& username) {
     auto result = collection.delete_one(filter.view());
     metric.Succeed();
     if (!result || result->deleted_count() == 0) {
-      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
-                                              "user not found");
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound, "user not found");
     }
     return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
@@ -211,11 +193,9 @@ RepositoryResult<bool> BlogRepository::DeleteUser(const std::string& username) {
   }
 }
 
-RepositoryResult<std::string> BlogRepository::AddPost(
-    const model::Post& post) {
+RepositoryResult<std::string> BlogRepository::AddPost(const model::Post& post) {
   if (const auto error = model::ValidatePost(post)) {
-    return RepositoryResult<std::string>::Failure(
-        RepositoryError::kInvalidArgument, *error);
+    return RepositoryResult<std::string>::Failure(RepositoryError::kInvalidArgument, *error);
   }
   try {
     MongoOperationMetric metric;
@@ -227,36 +207,29 @@ RepositoryResult<std::string> BlogRepository::AddPost(
 
     bsoncxx::builder::basic::array comments;
     for (const auto& comment : post.comments) {
-      comments.append(make_document(
-          kvp("user", comment.user),
-          kvp("content", comment.content),
-          kvp("timestamp", DateValue(comment.timestamp))));
+      comments.append(make_document(kvp("user", comment.user), kvp("content", comment.content),
+                                    kvp("timestamp", DateValue(comment.timestamp))));
     }
 
-    const auto published_date = post.published_date.empty()
-                                    ? model::CurrentUtcTimestamp()
-                                    : post.published_date;
+    const auto published_date =
+        post.published_date.empty() ? model::CurrentUtcTimestamp() : post.published_date;
 
     auto result = collection.insert_one(make_document(
-        kvp("title", post.title),
-        kvp("author", post.author),
-        kvp("content", post.content),
-        kvp("tags", tags.view()),
-        kvp("published_date", DateValue(published_date)),
+        kvp("title", post.title), kvp("author", post.author), kvp("content", post.content),
+        kvp("tags", tags.view()), kvp("published_date", DateValue(published_date)),
         kvp("comments", comments.view())));
     metric.Succeed();
     if (!result) {
-      return RepositoryResult<std::string>::Failure(
-          RepositoryError::kInternal, "post was not inserted");
+      return RepositoryResult<std::string>::Failure(RepositoryError::kInternal,
+                                                    "post was not inserted");
     }
 
     auto id_view = result->inserted_id();
     if (id_view.type() != bsoncxx::type::k_oid) {
-      return RepositoryResult<std::string>::Failure(
-          RepositoryError::kInternal, "inserted post has no ObjectId");
+      return RepositoryResult<std::string>::Failure(RepositoryError::kInternal,
+                                                    "inserted post has no ObjectId");
     }
-    return RepositoryResult<std::string>::Success(
-        id_view.get_oid().value.to_string());
+    return RepositoryResult<std::string>::Success(id_view.get_oid().value.to_string());
   } catch (const mongocxx::exception& e) {
     return MongoFailure<std::string>(e);
   } catch (const bsoncxx::exception& e) {
@@ -264,11 +237,10 @@ RepositoryResult<std::string> BlogRepository::AddPost(
   }
 }
 
-RepositoryResult<model::Post> BlogRepository::FindPostById(
-    const std::string& id) {
+RepositoryResult<model::Post> BlogRepository::FindPostById(const std::string& id) {
   if (!IsValidObjectId(id)) {
-    return RepositoryResult<model::Post>::Failure(
-        RepositoryError::kInvalidArgument, "invalid post id");
+    return RepositoryResult<model::Post>::Failure(RepositoryError::kInvalidArgument,
+                                                  "invalid post id");
   }
   try {
     MongoOperationMetric metric;
@@ -279,12 +251,10 @@ RepositoryResult<model::Post> BlogRepository::FindPostById(
     auto maybe = collection.find_one(filter.view());
     metric.Succeed();
     if (!maybe) {
-      return RepositoryResult<model::Post>::Failure(
-          RepositoryError::kNotFound, "post not found");
+      return RepositoryResult<model::Post>::Failure(RepositoryError::kNotFound, "post not found");
     }
 
-    return RepositoryResult<model::Post>::Success(
-        DocumentToPost(maybe->view()));
+    return RepositoryResult<model::Post>::Success(DocumentToPost(maybe->view()));
   } catch (const mongocxx::exception& e) {
     return MongoFailure<model::Post>(e);
   } catch (const bsoncxx::exception& e) {
@@ -294,12 +264,10 @@ RepositoryResult<model::Post> BlogRepository::FindPostById(
 
 RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
   if (!IsValidObjectId(post.id)) {
-    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
-                                            "invalid post id");
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument, "invalid post id");
   }
   if (const auto error = model::ValidatePost(post)) {
-    return RepositoryResult<bool>::Failure(
-        RepositoryError::kInvalidArgument, *error);
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument, *error);
   }
   try {
     MongoOperationMetric metric;
@@ -311,23 +279,18 @@ RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
     bsoncxx::builder::basic::array tags;
     for (const auto& tag : post.tags) tags.append(tag);
 
-    const auto published_date = post.published_date.empty()
-                                    ? model::CurrentUtcTimestamp()
-                                    : post.published_date;
+    const auto published_date =
+        post.published_date.empty() ? model::CurrentUtcTimestamp() : post.published_date;
 
     auto update = make_document(
-        kvp("$set", make_document(
-                        kvp("title", post.title),
-                        kvp("author", post.author),
-                        kvp("content", post.content),
-                        kvp("tags", tags.view()),
-                        kvp("published_date", DateValue(published_date)))));
+        kvp("$set", make_document(kvp("title", post.title), kvp("author", post.author),
+                                  kvp("content", post.content), kvp("tags", tags.view()),
+                                  kvp("published_date", DateValue(published_date)))));
 
     auto result = collection.update_one(filter.view(), update.view());
     metric.Succeed();
     if (!result || result->matched_count() == 0) {
-      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
-                                              "post not found");
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound, "post not found");
     }
     return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
@@ -339,8 +302,7 @@ RepositoryResult<bool> BlogRepository::UpdatePost(const model::Post& post) {
 
 RepositoryResult<bool> BlogRepository::DeletePost(const std::string& id) {
   if (!IsValidObjectId(id)) {
-    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument,
-                                            "invalid post id");
+    return RepositoryResult<bool>::Failure(RepositoryError::kInvalidArgument, "invalid post id");
   }
   try {
     MongoOperationMetric metric;
@@ -351,8 +313,7 @@ RepositoryResult<bool> BlogRepository::DeletePost(const std::string& id) {
     auto result = collection.delete_one(filter.view());
     metric.Succeed();
     if (!result || result->deleted_count() == 0) {
-      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound,
-                                              "post not found");
+      return RepositoryResult<bool>::Failure(RepositoryError::kNotFound, "post not found");
     }
     return RepositoryResult<bool>::Success(true);
   } catch (const mongocxx::exception& e) {
@@ -365,21 +326,13 @@ RepositoryResult<bool> BlogRepository::DeletePost(const std::string& id) {
 RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
     const model::PostQuery& query) {
   if (const auto error = model::ValidatePostQuery(query)) {
-    return RepositoryResult<std::vector<model::Post>>::Failure(
-        RepositoryError::kInvalidArgument, *error);
+    return RepositoryResult<std::vector<model::Post>>::Failure(RepositoryError::kInvalidArgument,
+                                                               *error);
   }
-  const auto from = query.published_from
-                        ? model::ParseUtcTimestamp(*query.published_from)
-                        : std::optional<std::chrono::system_clock::time_point>{};
-  const auto to = query.published_to
-                      ? model::ParseUtcTimestamp(*query.published_to)
-                      : std::optional<std::chrono::system_clock::time_point>{};
-  if ((query.published_from && !from) || (query.published_to && !to) ||
-      (from && to && *from > *to)) {
-    return RepositoryResult<std::vector<model::Post>>::Failure(
-        RepositoryError::kInvalidArgument,
-        "published_from and published_to must be ordered UTC timestamps");
-  }
+  std::optional<std::chrono::system_clock::time_point> from;
+  std::optional<std::chrono::system_clock::time_point> to;
+  if (query.published_from) from = model::ParseUtcTimestamp(*query.published_from);
+  if (query.published_to) to = model::ParseUtcTimestamp(*query.published_to);
   std::vector<model::Post> posts;
   try {
     MongoOperationMetric metric;
@@ -405,8 +358,7 @@ RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
       posts.push_back(DocumentToPost(doc));
     }
     metric.Succeed();
-    return RepositoryResult<std::vector<model::Post>>::Success(
-        std::move(posts));
+    return RepositoryResult<std::vector<model::Post>>::Success(std::move(posts));
   } catch (const mongocxx::exception& e) {
     return MongoFailure<std::vector<model::Post>>(e);
   } catch (const bsoncxx::exception& e) {
@@ -414,17 +366,15 @@ RepositoryResult<std::vector<model::Post>> BlogRepository::GetAllPosts(
   }
 }
 
-RepositoryResult<std::vector<std::pair<std::string, int>>>
-BlogRepository::CountPostsPerAuthor() {
+RepositoryResult<std::vector<std::pair<std::string, int>>> BlogRepository::CountPostsPerAuthor() {
   std::vector<std::pair<std::string, int>> result;
   try {
     MongoOperationMetric metric;
     auto client = pool_->acquire();
     auto collection = (*client)[db_name_]["posts"];
 
-    auto group_spec = make_document(
-        kvp("_id", "$author"),
-        kvp("count", make_document(kvp("$sum", 1))));
+    auto group_spec =
+        make_document(kvp("_id", "$author"), kvp("count", make_document(kvp("$sum", 1))));
 
     mongocxx::pipeline pipeline;
     pipeline.group(group_spec.view());
@@ -441,8 +391,7 @@ BlogRepository::CountPostsPerAuthor() {
       result.emplace_back(author, count);
     }
     metric.Succeed();
-    return RepositoryResult<std::vector<std::pair<std::string, int>>>::Success(
-        std::move(result));
+    return RepositoryResult<std::vector<std::pair<std::string, int>>>::Success(std::move(result));
   } catch (const mongocxx::exception& e) {
     return MongoFailure<std::vector<std::pair<std::string, int>>>(e);
   } catch (const bsoncxx::exception& e) {
@@ -474,49 +423,39 @@ RepositoryResult<bool> BlogRepository::InitializeSchema() {
         const auto id = document["_id"];
         if (!id || id.type() != bsoncxx::type::k_oid) continue;
         const auto current = DateString(document["published_date"]);
-        const auto value = model::ParseUtcTimestamp(current)
-                               ? current
-                               : model::CurrentUtcTimestamp();
+        const auto value =
+            model::ParseUtcTimestamp(current) ? current : model::CurrentUtcTimestamp();
         bsoncxx::builder::basic::array migrated_comments;
-        if (document["comments"] &&
-            document["comments"].type() == bsoncxx::type::k_array) {
+        if (document["comments"] && document["comments"].type() == bsoncxx::type::k_array) {
           for (const auto& element : document["comments"].get_array().value) {
             if (element.type() != bsoncxx::type::k_document) continue;
             const auto comment = element.get_document().view();
-            const auto user = comment["user"] &&
-                                      comment["user"].type() ==
-                                          bsoncxx::type::k_string
-                                  ? std::string(
-                                        comment["user"].get_string().value)
+            const auto user = comment["user"] && comment["user"].type() == bsoncxx::type::k_string
+                                  ? std::string(comment["user"].get_string().value)
                                   : std::string{};
-            const auto content = comment["content"] &&
-                                         comment["content"].type() ==
-                                             bsoncxx::type::k_string
-                                     ? std::string(
-                                           comment["content"].get_string().value)
-                                     : std::string{};
+            const auto content =
+                comment["content"] && comment["content"].type() == bsoncxx::type::k_string
+                    ? std::string(comment["content"].get_string().value)
+                    : std::string{};
             const auto timestamp = DateString(comment["timestamp"]);
-            migrated_comments.append(make_document(
-                kvp("user", user), kvp("content", content),
-                kvp("timestamp", DateValue(timestamp))));
+            migrated_comments.append(make_document(kvp("user", user), kvp("content", content),
+                                                   kvp("timestamp", DateValue(timestamp))));
           }
         }
-        posts.update_one(
-            make_document(kvp("_id", id.get_oid().value)),
-            make_document(kvp(
-                "$set", make_document(
-                            kvp("published_date", DateValue(value)),
-                            kvp("comments", migrated_comments.extract())))));
+        posts.update_one(make_document(kvp("_id", id.get_oid().value)),
+                         make_document(kvp(
+                             "$set", make_document(kvp("published_date", DateValue(value)),
+                                                   kvp("comments", migrated_comments.extract())))));
       }
       mongocxx::options::update upsert;
       upsert.upsert(true);
       migrations.update_one(
           make_document(kvp("_id", 1)),
           make_document(kvp(
-              "$set", make_document(
-                          kvp("name", "native_post_dates_and_indexes"),
-                          kvp("applied_at", bsoncxx::types::b_date{
-                                                std::chrono::system_clock::now()})))),
+              "$set",
+              make_document(
+                  kvp("name", "native_post_dates_and_indexes"),
+                  kvp("applied_at", bsoncxx::types::b_date{std::chrono::system_clock::now()})))),
           upsert);
     }
 
@@ -527,19 +466,13 @@ RepositoryResult<bool> BlogRepository::InitializeSchema() {
 
     mongocxx::options::index published_index;
     published_index.name("posts_published_id");
-    posts.create_index(
-        make_document(kvp("published_date", -1), kvp("_id", -1)),
-        published_index);
+    posts.create_index(make_document(kvp("published_date", -1), kvp("_id", -1)), published_index);
     mongocxx::options::index author_index;
     author_index.name("posts_author_published");
-    posts.create_index(
-        make_document(kvp("author", 1), kvp("published_date", -1)),
-        author_index);
+    posts.create_index(make_document(kvp("author", 1), kvp("published_date", -1)), author_index);
     mongocxx::options::index tag_index;
     tag_index.name("posts_tags_published");
-    posts.create_index(
-        make_document(kvp("tags", 1), kvp("published_date", -1)),
-        tag_index);
+    posts.create_index(make_document(kvp("tags", 1), kvp("published_date", -1)), tag_index);
 
     const auto users_validator = bsoncxx::from_json(R"({
       "collMod":"users",
@@ -594,7 +527,7 @@ RepositoryResult<bool> BlogRepository::InitializeSchema() {
     for (const auto& expected : {"users_username_unique"}) {
       if (index_names.count(expected) == 0) {
         return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
-                                                "required user index missing");
+                                               "required user index missing");
       }
     }
     index_names.clear();
@@ -603,12 +536,11 @@ RepositoryResult<bool> BlogRepository::InitializeSchema() {
         index_names.emplace(index["name"].get_string().value);
       }
     }
-    for (const auto& expected : {"posts_published_id",
-                                 "posts_author_published",
-                                 "posts_tags_published"}) {
+    for (const auto& expected :
+         {"posts_published_id", "posts_author_published", "posts_tags_published"}) {
       if (index_names.count(expected) == 0) {
         return RepositoryResult<bool>::Failure(RepositoryError::kInternal,
-                                                "required post index missing");
+                                               "required post index missing");
       }
     }
     metric.Succeed();

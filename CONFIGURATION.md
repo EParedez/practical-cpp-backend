@@ -27,10 +27,21 @@ a structured fatal log before the server accepts traffic.
 | `HTTP_KEEP_ALIVE_TIMEOUT_SECONDS` | `10` | Integer from 1 to 3600 | HTTP |
 | `HTTP_KEEP_ALIVE_MAX_COUNT` | `20` | Integer from 1 to 10,000 | HTTP |
 | `SHUTDOWN_GRACE_SECONDS` | `10` | Integer from 1 to 300 | HTTP and gRPC |
+| `AUTH_REQUIRED` | `false` | Boolean | HTTP and gRPC |
+| `PROTECT_READ_ENDPOINTS` | `false` | Boolean | HTTP and gRPC |
+| `BLOG_READER_TOKEN` | empty | At least 32 characters when set | HTTP and gRPC |
+| `BLOG_WRITER_TOKEN` | empty | At least 32 characters when set | HTTP and gRPC |
+| `BLOG_ADMIN_TOKEN` | empty | At least 32 characters when set | HTTP and gRPC |
+| `RATE_LIMIT_PER_MINUTE` | `60` | Integer from 0 to 1,000,000; zero disables | HTTP and gRPC |
+| `CORS_ALLOWED_ORIGIN` | empty | Exact origin, `*`, or empty to deny CORS | HTTP |
+| `TLS_CERTIFICATE_FILE` | empty | Readable PEM certificate path | HTTP and gRPC |
+| `TLS_PRIVATE_KEY_FILE` | empty | Readable PEM private-key path | HTTP and gRPC |
 
 `CACHE_CAPACITY` controls each process-local post cache. Setting it to zero disables
 storage while retaining miss accounting. MongoDB URI options explicitly present in
 `MONGODB_URI` take precedence over the corresponding pool and timeout variables.
+When `AUTH_REQUIRED=true`, at least a writer or administrator token is required.
+The two TLS paths must be configured together. See [Security Model](SECURITY.md).
 
 ## Command-Line Overrides
 

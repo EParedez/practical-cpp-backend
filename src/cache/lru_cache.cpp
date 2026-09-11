@@ -9,6 +9,7 @@ int LRUCache::get(int key) {
 }
 
 void LRUCache::put(int key, int value) {
+  if (capacity_ <= 0) return;
   if (cache_.find(key) != cache_.end()) {
     removeKey(key);
   } else if (static_cast<int>(cache_.size()) == capacity_) {

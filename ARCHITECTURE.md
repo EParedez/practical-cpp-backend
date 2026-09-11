@@ -1,196 +1,137 @@
-# Arquitectura del Proyecto
+# Architecture
 
-Este documento describe la arquitectura de **PracticalCppBackend**, el backend en C++
-reconstruido a partir de los snippets del libro *Practical C++ Backend Programming*
-(Justin Barbara, GitforGits 2023). Complementa el `README.md` con el detalle de diseño:
-componentes, flujos de datos, decisiones técnicas y el camino a seguir.
+This document describes the implemented architecture of PracticalCppBackend. Planned
+work is intentionally separated under [Future Work](#future-work); it should not be
+read as a description of current behavior.
 
----
+## System Context
 
-## 1. Visión general
+The application is a C++17 blog backend with two API processes over one MongoDB data
+model:
 
-El proyecto es un **backend de blog** en C++17 con dos superficies de API:
-
-- **REST/HTTP** (puerto `8080`) — para clientes web / Nginx.
-- **gRPC** (puerto `50051`) — para servicios internos (microservicios).
-
-Ambas comparten la misma **capa de negocio y de datos** (MongoDB), de modo que el
-código de CRUD se escribe una sola vez y se expone por ambos canales.
-
-```
-                    ┌──────────────────────────────────────────────┐
-   Navegador ──► Nginx ──► HTTP Server (8080)                       │
-                    │          │                                    │
-                    │          ▼                                    │
-   Cliente gRPC ──► │   gRPC Server (50051) ──► BlogServiceImpl     │
-                    │                                   │           │
-                    │                                   ▼           │
-                    │                        BlogRepository (blogcore)
-                    │                                   │           │
-                    │                                   ▼           │
-                    └────────────────────────► MongoDB (27017)      │
-                                                                   └────
+```text
+Browser or HTTP client
+        │
+        ▼
+      Nginx ───────────────► HTTP server :8080
+                                  │
+Internal gRPC client ──────► gRPC server :50051
+                                  │
+                                  ▼
+                         BlogStore interface
+                                  │
+                                  ▼
+                     BlogRepository / MongoDB
 ```
 
-## 2. Componentes y dependencias
+HTTP and gRPC are separate processes. Each creates its own repository connection pool,
+typed post cache, authentication objects, limiter, logs, and metrics. They share data
+through MongoDB, not through process memory.
 
-| Componente | Ubicación | Responsabilidad | Dependencias |
-|------------|-----------|-----------------|--------------|
-| `blogcore` (lib estática) | `src/db`, `src/cache`, `src/model` | Modelos, acceso a MongoDB, cachés | `mongo::mongocxx_shared` |
-| `blogservice` (lib) | `src/api` + código generado | Implementación de los RPC gRPC | `blogcore`, `gRPC::grpc++`, `protobuf` |
-| `bloghttp` (lib) | `src/server/http_app.cpp` | Rutas, validación y respuestas HTTP | `blogcore`, cpp-httplib |
-| `blog_http_server` | `src/server/http_server_main.cpp` | Proceso del servidor HTTP | `bloghttp` |
-| `blog_grpc_server` | `src/api/grpc_server_main.cpp` | Servidor gRPC en `0.0.0.0:50051` | `blogservice` |
-| `blog_grpc_client` | `src/api/grpc_client_main.cpp` | Cliente de prueba (CRUD completo) | `blogservice` |
-| `unit_tests`, `grpc_unit_tests`, `integration_tests` | `tests/` | 64 tests unitarios e integración | `blogcore`, `blogservice`, `GTest` |
+## Runtime Components
 
-### Jerarquía de capas (flujo de una petición)
+| Component | Source | Responsibility |
+| --- | --- | --- |
+| `blogcore` | `src/auth`, `src/cache`, `src/common`, `src/config`, `src/db`, `src/model` | Domain validation, security, telemetry, caching, and persistence |
+| `blogservice` | `src/api/blog_service_impl.*` and generated protobuf code | gRPC request validation, authorization, and repository mapping |
+| `bloghttp` | `src/server/http_app.*` | HTTP routing, JSON, authorization, CORS, and response mapping |
+| `blog_http_server` | `src/server/http_server_main.cpp` | HTTP/HTTPS process lifecycle and graceful shutdown |
+| `blog_grpc_server` | `src/api/grpc_server_main.cpp` | gRPC/TLS lifecycle plus an internal HTTP health/metrics listener |
+| `blog_grpc_client` | `src/api/grpc_client_main.cpp` | Example CRUD client |
 
-1. **Transporte** — HTTP (`httplib`) o gRPC (`grpcpp`).
-2. **API layer** — `BlogServiceImpl` valida entrada y traduce mensajes ↔ modelos.
-3. **Datos** — `BlogRepository` encapsula el driver de MongoDB (pool de conexiones).
-4. **Modelo** — `model::User`, `model::Post`, `model::Comment` (structs planos).
-5. **Caché** — `ThreadSafeLruPostCache` tipada en producción; las cachés enteras
-   `LRUCache`/`LFUCache`/`RRCache` se conservan como ejemplos educativos.
+The `BlogStore` interface separates transport behavior from MongoDB. HTTP and gRPC
+tests substitute an in-memory or purpose-built test store without connecting to a
+database.
 
-## 3. Capa de datos (MongoDB)
+## Request Flow
 
-`BlogRepository` (`src/db/blog_repository.{h,cpp}`) es la única clase que toca el driver.
+1. The transport accepts a bounded request and assigns or validates a request ID.
+2. CORS, credentials, role requirements, and rate limits are evaluated where relevant.
+3. The API layer validates and converts the request into domain models.
+4. Reads check the process-local post cache before calling `BlogStore`.
+5. `BlogRepository` acquires a pooled MongoDB client and performs the operation.
+6. Successful mutations refresh or invalidate the local cache.
+7. The transport maps typed repository results to HTTP or gRPC status codes.
+8. Structured logs and process-local counters record the outcome and duration.
 
-- **Conexión**: `mongocxx::pool` con `mongocxx::uri`, inicializado tras el singleton
-  `mongocxx::instance` (requisito del driver 4.x).
-- **Colecciones**: `users` y `posts` en la base `blog`.
-- **CRUD**: `insert_one` / `find_one` / `update_one` / `delete_one`.
-- **Agregación**: `CountPostsPerAuthor()` usa `pipeline.group({_id: "$author", count: {$sum: 1}})`.
-- **Índices**: documentado para `users.username` (ver `README.md`); crearlos con
-  `collection.create_index(...)`.
+## Persistence
 
-> Nota de compatibilidad: el driver instalado es la serie 4.x, cuya API difiere de la
-> del libro (3.x): `element::get_utf8()` pasó a `get_string()`, y el stream builder se
-> sustituyó por el `basic::make_document`/`kvp`. El repositorio usa la API moderna.
+`BlogRepository` is the only production component that uses `mongocxx` directly. At
+startup it runs idempotent schema migration version 1, installs strict collection
+validators, creates required indexes, and verifies them before accepting traffic.
 
-## 4. API gRPC
+Posts embed a bounded comments array. Dates are stored as native BSON dates but remain
+canonical UTC strings at the public API boundary. List queries are bounded, filtered,
+and sorted by publication date and MongoDB ID in descending order. Details are in
+[PERSISTENCE.md](PERSISTENCE.md).
 
-Contrato en `proto/blog_service.proto`:
+## Cache and Consistency
 
-```
-service BlogService {
-  rpc AddPost(Post)          returns (PostResponse);
-  rpc GetPost(PostResponse)  returns (FullPostResponse);
-  rpc UpdatePost(Post)       returns (PostResponse);
-  rpc DeletePost(PostResponse) returns (PostResponse);
-  rpc GetAllPosts(PostResponse) returns (AllPostsResponse);
-}
-```
+The production cache is a mutex-protected, typed LRU cache keyed by post ID. Its
+capacity and TTL are configurable. A capacity of zero safely disables storage.
 
-- **Generación**: CMake invoca `protoc` (+ plugin `grpc_cpp_plugin`) en tiempo de build
-  hacia `build/proto/`.
-- **Validación**: `AddPost` rechaza título/autor vacíos con `INVALID_ARGUMENT`; las
-  operaciones sobre IDs inexistentes devuelven `NOT_FOUND`; fallos de BD, `INTERNAL`.
+Because HTTP and gRPC run separately, cache coherence is eventual across processes:
+a mutation immediately changes only the cache in the process that handled it. Other
+instances can retain an old entry until its TTL expires. Strong cross-instance cache
+coherence would require shared storage or invalidation events. See [CACHE.md](CACHE.md).
 
-## 5. Caché (capítulo 7)
+The integer LRU, LFU, and random-replacement classes remain educational examples and
+are not in the request path.
 
-Tres políticas en `src/cache/`, todas O(1) en `get`/`put`:
+## Security Boundaries
 
-| Clase | Estructuras | Política de desalojo |
-|-------|-------------|----------------------|
-| `LRUCache` | `unordered_map` + `list` | Least Recently Used |
-| `LFUCache` | 3 mapas (`m`, `freq`, `iter`) | Least Frequently Used |
-| `RRCache` | `unordered_map` + `vector` | Random Replacement |
+Role-based Bearer tokens protect mutation endpoints when `AUTH_REQUIRED=true`.
+Readers can optionally be required for read endpoints. Passwords accepted by the
+repository are immediately converted to salted PBKDF2-HMAC-SHA-256 hashes and hashes
+are not returned by read models.
 
-`BlogServiceImpl` usa un `LRUCache(128)` como caché de lectura. El diseño permite
-intercambiar la política sin tocar la capa de API.
+HTTP and gRPC can terminate TLS directly, or an external trusted load balancer can
+terminate TLS while application listeners remain private. CORS is deny-by-default,
+HTTP responses include restrictive security headers, and authenticated operations use
+a process-local fixed-window rate limiter. Production constraints are documented in
+[SECURITY.md](SECURITY.md).
 
-## 6. API REST (HTTP)
+## Operations and Deployment
 
-`blog_http_server` (`src/server/http_server_main.cpp`) usa cpp-httplib (header-only,
-incluido en el repo).
+- `/health` reports process liveness; `/ready` verifies MongoDB connectivity.
+- HTTP exposes Prometheus text metrics on `/metrics`.
+- gRPC exposes health and metrics on a separate internal HTTP listener.
+- Logs are newline-delimited JSON with request IDs, status, operation, and duration.
+- Docker Compose runs MongoDB, HTTP, gRPC, and Nginx for local verification.
+- The supported cloud model is two ECS Fargate services using one immutable image,
+  managed MongoDB, private networking, secret injection, and TLS load balancers.
+- GitHub Actions gates publication on tests and security checks, then emits an SBOM,
+  immutable image tag, and provenance attestation.
 
-| Método | Ruta | Acción |
-|--------|------|--------|
-| GET | `/health` | health check |
-| GET | `/posts` | lista posts |
-| POST | `/posts` | crea post (`title`, `author`, `content`) |
-| GET | `/posts/:id` | obtiene post |
-| DELETE | `/posts/:id` | elimina post |
-| GET | `/stats/posts-per-author` | agregación `$group/$sum` |
+The AWS files are deployable templates, not evidence of an existing AWS deployment.
+See [DEPLOYMENT.md](DEPLOYMENT.md) and [RELEASE.md](RELEASE.md).
 
-## 7. Edge y despliegue
+## Build and Verification
 
-- **Nginx** (`deploy/nginx/`): reverse proxy → `blog_http:8080`; load balancer
-  round-robin/least_conn/ip_hash; HTTPS con headers de seguridad y rate limiting.
-- **Docker** (`Dockerfile` multi-stage + `docker-compose.yml`): mongo + http + grpc + nginx.
-- **AWS** (`deploy/aws/beanstalk.config` + `Procfile`): Elastic Beanstalk arranca
-  `blog_http_server` en el puerto 5000.
-- **CI/CD** (`.github/workflows/`): `test.yml` (build+tests con servicio Mongo) y
-  `docker.yml` (push de imagen).
+CMake builds three runtime executables and three test executables. The suite currently
+contains 73 tests: 51 unit tests and 22 MongoDB-backed integration tests. CI adds
+warnings-as-errors builds, clang-format, clang-tidy, sanitizers, coverage, dependency
+review, secret scanning, container scanning, and an end-to-end Compose smoke test.
 
-## 8. Build y tests
+## Architecture Decisions
 
-- CMake con `CMAKE_CXX_STANDARD=17`; targets: `blogcore`, `blogservice`, `bloghttp`,
-  `blog_grpc_server`, `blog_grpc_client`, `blog_http_server`, `unit_tests`,
-  `grpc_unit_tests` e `integration_tests`.
-- 64 tests Google Test: 13 de cachés educativas, 6 de caché de posts, 4 de
-  configuración, 15 de HTTP, 5 del servicio gRPC, 14 de repositorio (integración
-  Mongo) y 7 de gRPC↔MongoDB (servidor real en proceso).
-- En macOS ARM bajo Rosetta 2, compilar con `arch -arm64 ...`.
+Short decision records explain the important boundaries and tradeoffs:
 
----
+- [ADR-0001: Separate HTTP and gRPC processes](docs/adr/0001-separate-http-and-grpc-processes.md)
+- [ADR-0002: MongoDB repository and startup migrations](docs/adr/0002-mongodb-repository-and-startup-migrations.md)
+- [ADR-0003: Process-local typed LRU cache](docs/adr/0003-process-local-typed-lru-cache.md)
+- [ADR-0004: Role-based static Bearer tokens](docs/adr/0004-role-based-static-bearer-tokens.md)
+- [ADR-0005: ECS Fargate deployment model](docs/adr/0005-ecs-fargate-deployment-model.md)
 
-# Next Steps
+## Future Work
 
-Camino sugerido para evolucionar el proyecto, ordenado por impacto/valor.
+The following items are exploratory and are not implemented:
 
-## Prioridad alta
+- Deploy and validate the ECS templates in a real AWS environment.
+- Introduce shared cache invalidation if cross-process stale reads are unacceptable.
+- Benchmark HTTP against gRPC and compare cache policies under representative load.
+- Evaluate a C++20 migration only after compiler and dependency compatibility checks.
+- Add a dedicated identity provider if user-facing login replaces deployment tokens.
 
-- [ ] **Autenticación y autorización** (cap. 10 del libro)
-  - Implementar JWT/OAuth y un `AuthInterceptor` gRPC (los snippets ya están en el libro).
-  - Roles `writer` / `reader` en MongoDB con `db.createUser`.
-  - Endpoint `POST /auth/login` en el HTTP server.
-- [x] **Integrar la caché de verdad en `GetPost`**
-  - `LRUCache` ya existe y se instancia; conectar los hits/misses al flujo real y
-    añadir `Cache-Control`/`ETag` en HTTP.
-- [ ] **Tests de la capa HTTP**
-  - Falta `http_server_test.cpp` (hoy solo se testea gRPC y el repo).
-- [x] **Crear índices reales**
-  - `create_index` en `users.username` y `posts.author` al arrancar.
-
-## Prioridad media
-
-- [x] **Configuración por variables de entorno**
-  - `MONGODB_URI`, `PORT`, `GRPC_PORT`, capacidad de caché.
-- [x] **Logging estructurado**
-  - Logs JSON (spdlog o glog) con request-id y tiempos de respuesta.
-- [x] **Dockerfile de producción pulido**
-  - Build estático/`-static` o imagen distroless; probar `docker compose up`.
-- [ ] **gRPC con TLS**
-  - `grpc::SslServerCredentials` con certificados (generar con `openssl`).
-- [x] **Paginación y búsqueda**
-  - `GetAllPosts` con `limit`/`offset` y filtro por `tag`/`author`.
-
-## Prioridad baja / exploración
-
-- [ ] **Microservicio independiente para caché** (cap. 7: "Usando gRPC para cache")
-  - Servicio de caché gRPC separado, escalable de forma independiente.
-- [ ] **Índice de tests con cobertura**
-  - Integrar `gcovr`/Coveralls y reporte de cobertura en CI.
-- [ ] **Despliegue real en AWS**
-  - Provisionar Mongo Atlas + Elastic Beanstalk; documentar el flujo completo.
-- [ ] **Benchmarks de rendimiento**
-  - Medir latencia gRPC vs HTTP y los tres algoritmos de caché.
-- [ ] **Soporte C++20**
-  - Evaluar `std::ranges`/coroutines (el libro menciona estas features).
-
-## Ráfaga de inicio (si retomas el código)
-
-```bash
-cd ~/Desktop/PracticalCppBackend
-./scripts/start_mongo.sh
-cmake -B build -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/grpc;/opt/homebrew/opt/mongo-cxx-driver;/opt/homebrew/opt/bsoncxx;/opt/homebrew/opt/mongo-c-driver;/opt/homebrew/opt/googletest"
-arch -arm64 cmake --build build -j8          # solo si estás bajo Rosetta
-ctest --test-dir build --output-on-failure
-./build/blog_http_server 0.0.0.0 8080 &       # API REST
-./build/blog_grpc_server 0.0.0.0:50051 &      # API gRPC
-./build/blog_grpc_client localhost:50051      # prueba el flujo completo
-```
+The authoritative phased backlog and completion history are in
+[IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md).

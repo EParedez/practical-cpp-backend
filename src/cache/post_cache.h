@@ -25,8 +25,7 @@ class PostCache {
 
 class ThreadSafeLruPostCache final : public PostCache {
  public:
-  ThreadSafeLruPostCache(std::size_t capacity,
-                         std::chrono::milliseconds ttl);
+  ThreadSafeLruPostCache(std::size_t capacity, std::chrono::milliseconds ttl);
 
   std::optional<model::Post> Get(const std::string& id) override;
   void Put(const std::string& id, const model::Post& post) override;
@@ -51,4 +50,3 @@ class ThreadSafeLruPostCache final : public PostCache {
 };
 
 }  // namespace blog::cache
-

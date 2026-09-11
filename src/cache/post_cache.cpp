@@ -7,16 +7,14 @@
 
 namespace blog::cache {
 
-ThreadSafeLruPostCache::ThreadSafeLruPostCache(
-    std::size_t capacity, std::chrono::milliseconds ttl)
+ThreadSafeLruPostCache::ThreadSafeLruPostCache(std::size_t capacity, std::chrono::milliseconds ttl)
     : capacity_(capacity), ttl_(ttl) {
   if (ttl_.count() <= 0) {
     throw std::invalid_argument("cache TTL must be positive");
   }
 }
 
-std::optional<model::Post> ThreadSafeLruPostCache::Get(
-    const std::string& id) {
+std::optional<model::Post> ThreadSafeLruPostCache::Get(const std::string& id) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto found = by_id_.find(id);
   if (found == by_id_.end()) {
@@ -34,8 +32,7 @@ std::optional<model::Post> ThreadSafeLruPostCache::Get(
   return entries_.front().post;
 }
 
-void ThreadSafeLruPostCache::Put(const std::string& id,
-                                 const model::Post& post) {
+void ThreadSafeLruPostCache::Put(const std::string& id, const model::Post& post) {
   if (capacity_ == 0) return;
   std::lock_guard<std::mutex> lock(mutex_);
   const auto expiration = std::chrono::steady_clock::now() + ttl_;
@@ -67,8 +64,7 @@ void ThreadSafeLruPostCache::Invalidate(const std::string& id) {
 void ThreadSafeLruPostCache::Clear() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!entries_.empty()) {
-    observability::Metrics::Instance().RecordCacheInvalidation(
-        entries_.size());
+    observability::Metrics::Instance().RecordCacheInvalidation(entries_.size());
   }
   entries_.clear();
   by_id_.clear();
@@ -80,4 +76,3 @@ std::size_t ThreadSafeLruPostCache::Size() const {
 }
 
 }  // namespace blog::cache
-

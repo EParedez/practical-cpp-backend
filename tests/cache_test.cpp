@@ -28,8 +28,8 @@ TEST(LRUCacheTest, EvictsLeastRecentlyUsed) {
   LRUCache cache(2);
   cache.put(1, 10);
   cache.put(2, 20);
-  cache.get(1);          // 1 becomes most recent
-  cache.put(3, 30);      // evicts 2
+  cache.get(1);      // 1 becomes most recent
+  cache.put(3, 30);  // evicts 2
   EXPECT_EQ(cache.get(2), -1);
   EXPECT_EQ(cache.get(1), 10);
   EXPECT_EQ(cache.get(3), 30);
@@ -40,6 +40,15 @@ TEST(LRUCacheTest, UpdateExistingKey) {
   cache.put(1, 10);
   cache.put(1, 99);
   EXPECT_EQ(cache.get(1), 99);
+}
+
+TEST(LRUCacheTest, NonPositiveCapacityDoesNotStore) {
+  blog::cache::LRUCache zero(0);
+  blog::cache::LRUCache negative(-1);
+  zero.put(1, 10);
+  negative.put(1, 10);
+  EXPECT_EQ(zero.get(1), -1);
+  EXPECT_EQ(negative.get(1), -1);
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +72,8 @@ TEST(LFUCacheTest, EvictsLeastFrequentlyUsed) {
   LFUCache cache(2);
   cache.put(1, 10);
   cache.put(2, 20);
-  cache.get(1);          // freq(1)=2
-  cache.put(3, 30);      // evicts 2 (freq 1)
+  cache.get(1);      // freq(1)=2
+  cache.put(3, 30);  // evicts 2 (freq 1)
   EXPECT_EQ(cache.get(2), -1);
   EXPECT_EQ(cache.get(1), 10);
   EXPECT_EQ(cache.get(3), 30);
@@ -74,6 +83,14 @@ TEST(LFUCacheTest, ZeroCapacityDoesNotStore) {
   LFUCache cache(0);
   cache.put(1, 10);
   EXPECT_EQ(cache.get(1), -1);
+}
+
+TEST(LFUCacheTest, SupportsMinusOneAsAnEducationalStoredValue) {
+  blog::cache::LFUCache cache(1);
+  cache.put(1, -1);
+  EXPECT_EQ(cache.get(1), -1);
+  cache.put(2, 2);
+  EXPECT_EQ(cache.get(2), 2);
 }
 
 // ---------------------------------------------------------------------------

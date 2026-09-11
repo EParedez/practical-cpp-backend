@@ -1,152 +1,169 @@
 # Practical C++ Backend Programming
 
-Proyecto completo de backend en C++ construido a partir de los snippets del libro
-**"Practical C++ Backend Programming"** (Justin Barbara, GitforGits 2023).
-El libro solo ofrece fragmentos de código por capítulo; este repositorio los integra
-en una aplicación real, compilable y testeada: **un servidor de blog**.
+A production-oriented C++17 blog backend assembled from the examples in *Practical
+C++ Backend Programming* by Justin Barbara. It exposes the same MongoDB-backed domain
+through HTTP and gRPC and includes caching, authentication, observability, tests,
+containers, and a guarded release pipeline.
 
-> Documentos: **[Arquitectura y Next Steps](ARCHITECTURE.md)** · [README](#practical-c-backend-programming)
->
-> English documentation: [Improvement Plan](IMPROVEMENT_PLAN.md) ·
-> [HTTP API](API.md) · [Configuration](CONFIGURATION.md) ·
-> [Persistence](PERSISTENCE.md) · [Cache](CACHE.md) ·
-> [Local Docker Deployment](DEPLOYMENT.md) · [Testing Guide](TESTING.md)
+Spanish translations of the original overview and architecture documents are kept in
+[`docs/es`](docs/es/).
 
-## Stack (según los capítulos del libro)
+## Documentation
 
-| Capítulo | Tema | Implementación |
-|----------|------|----------------|
-| 5 | Bases de datos | **MongoDB** vía `mongo-cxx-driver` (CRUD, agregación, índices) |
-| 6 | APIs | **gRPC** + Protocol Buffers (`proto/blog_service.proto`) |
-| 7 | Caché | **LRU**, **LFU** y **RR** en STL |
-| 8 | Servidor web | **HTTP** server (cpp-httplib) + **Nginx** reverse proxy / load balancer |
-| 9 | Testing | **Google Test**: unit tests + integration tests (MongoDB + gRPC) |
-| 10 | Seguridad | TLS, auth tokens, cabeceras HTTP, rate limiting |
-| 11 | Despliegue | **Docker**, **GitHub Actions**, **AWS Elastic Beanstalk** |
+- [Architecture](ARCHITECTURE.md)
+- [HTTP and gRPC API](API.md)
+- [Configuration](CONFIGURATION.md)
+- [Persistence and schema management](PERSISTENCE.md)
+- [Production cache](CACHE.md)
+- [Security model](SECURITY.md)
+- [Testing and troubleshooting](TESTING.md)
+- [Local Docker deployment](DEPLOYMENT.md)
+- [Release and rollback](RELEASE.md)
+- [Dependency provenance and updates](docs/DEPENDENCIES.md)
+- [Architecture decision records](docs/adr/README.md)
+- [Improvement plan](IMPROVEMENT_PLAN.md)
 
-## Estructura
+## Components
 
-```
-PracticalCppBackend/
-├── CMakeLists.txt              # build principal
-├── Dockerfile                  # build multi-stage
-├── docker-compose.yml          # mongo + http + grpc + nginx
-├── Procfile                    # Elastic Beanstalk
-├── proto/
-│   └── blog_service.proto      # contrato gRPC CRUD + listado filtrado
+| Area | Implementation |
+| --- | --- |
+| Persistence | MongoDB through `mongo-cxx-driver`, with migrations, validators, indexes, CRUD, filtering, and aggregation |
+| APIs | cpp-httplib HTTP server and gRPC/Protocol Buffers service |
+| Cache | Thread-safe, typed LRU post cache; educational LRU, LFU, and random-replacement implementations |
+| Security | Role-based Bearer tokens, PBKDF2 password hashing, optional TLS, CORS, security headers, and rate limiting |
+| Operations | Structured JSON logs, request IDs, health/readiness endpoints, and Prometheus metrics |
+| Delivery | CMake, GoogleTest, Docker Compose, GitHub Actions, GHCR, and ECS Fargate templates |
+
+## Repository Layout
+
+```text
+.
+├── proto/                 # gRPC contract
 ├── src/
-│   ├── model/blog_models.h     # User, Post, Comment
-│   ├── db/blog_repository.{h,cpp}      # capa MongoDB (CRUD + agregación)
-│   ├── cache/lru_cache.{h,cpp}         # LRU O(1)
-│   ├── cache/lfu_cache.{h,cpp}         # LFU
-│   ├── cache/rr_cache.{h,cpp}          # Random Replacement
-│   ├── api/blog_service_impl.{h,cpp}   # implementación gRPC
-│   ├── api/grpc_server_main.cpp        # servidor gRPC (0.0.0.0:50051)
-│   ├── api/grpc_client_main.cpp        # cliente de prueba
-│   └── server/http_server_main.cpp     # servidor HTTP (0.0.0.0:8080)
-├── tests/
-│   ├── cache_test.cpp          # unit tests LRU/LFU/RR
-│   ├── repository_test.cpp     # integration tests MongoDB
-│   ├── integration_test.cpp    # integration tests gRPC + MongoDB
-│   └── CMakeLists.txt
-├── deploy/
-│   ├── nginx/                  # reverse proxy, load balancer, HTTPS + seguridad
-│   └── aws/                    # Elastic Beanstalk config
-└── .github/workflows/          # CI (test) y CD (Docker)
+│   ├── api/               # gRPC service, server, and sample client
+│   ├── auth/              # authorization, rate limiting, and password hashing
+│   ├── cache/             # production and educational caches
+│   ├── common/            # logging, metrics, and request context
+│   ├── config/            # centralized runtime configuration
+│   ├── db/                # MongoDB repository and store abstraction
+│   ├── model/             # domain models and validation
+│   └── server/            # HTTP routes and server
+├── tests/                 # unit and MongoDB-backed integration tests
+├── deploy/                # Nginx and AWS ECS definitions
+├── docs/                  # ADRs, dependencies, and Spanish translations
+└── scripts/               # setup, MongoDB, dependency, and smoke-test helpers
 ```
 
-## Requisitos
+## Prerequisites
 
-- CMake ≥ 3.16
-- Compilador C++17
-- `mongo-cxx-driver` (v4.x), `grpc` (con `grpc_cpp_plugin`), `googletest`
-- MongoDB server (para tests de integración)
+- CMake 3.16 or newer
+- A C++17 compiler
+- OpenSSL
+- gRPC with `grpc_cpp_plugin`
+- Protocol Buffers
+- MongoDB C++ driver 4.x
+- GoogleTest when `BUILD_TESTS=ON`
+- MongoDB for integration tests and local execution
 
-### macOS (Homebrew)
+On macOS with Homebrew:
 
 ```bash
-brew install mongo-cxx-driver grpc googletest
-brew tap mongodb/brew && brew install mongodb-community@8.0
+brew tap mongodb/brew
+brew install cmake openssl@3 grpc protobuf mongo-cxx-driver googletest \
+  mongodb-community@8.0
 ```
 
-## Compilar y testear
+## Build and Test
+
+The macOS helper installs missing Homebrew dependencies, starts a local MongoDB,
+builds the project, and runs all tests:
 
 ```bash
-./scripts/setup.sh          # instala deps, arranca Mongo, compila y corre tests
-# o manualmente:
-cmake -B build -DCMAKE_BUILD_TYPE=Release \
+./scripts/setup.sh
+```
+
+Or run the steps manually:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/grpc;/opt/homebrew/opt/mongo-cxx-driver;/opt/homebrew/opt/bsoncxx;/opt/homebrew/opt/mongo-c-driver;/opt/homebrew/opt/googletest"
-cmake --build build -j8
-ctest --test-dir build --output-on-failure  # 64 tests
+cmake --build build -j4
+ctest --test-dir build --output-on-failure --timeout 20
 ```
 
-Nota: si el shell corre bajo Rosetta 2 en un Mac ARM, anteponga `arch -arm64` a los
-comandos de build para evitar errores de arquitectura.
+If the shell is running under Rosetta 2 on Apple Silicon, prefix the CMake configure
+and build commands with `arch -arm64` to avoid mixed-architecture dependencies.
 
-## Ejecutar
+## Run Locally
 
 ```bash
-./scripts/start_mongo.sh                 # Mongo en localhost:27017
-
-# API HTTP (el backend del blog)
+./scripts/start_mongo.sh
 ./build/blog_http_server 0.0.0.0 8080
-
-# API gRPC
 ./build/blog_grpc_server 0.0.0.0:50051
-./build/blog_grpc_client localhost:50051   # cliente de prueba (CRUD completo)
 ```
 
-### Endpoints HTTP
+The servers default to port `5000` for HTTP and `50051` for gRPC when no positional
+arguments or environment overrides are supplied. The commands above explicitly use
+the development ports documented in this repository.
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/health` | health check |
-| GET | `/ready` | database-aware readiness check |
-| GET | `/metrics` | Prometheus metrics |
-| GET | `/posts` | lista posts |
-| POST | `/posts` | crea post (`title`, `author`, `content`) |
-| GET | `/posts/:id` | obtiene post |
-| PUT | `/posts/:id` | reemplaza post |
-| DELETE | `/posts/:id` | elimina post |
-| GET | `/stats/posts-per-author` | agregación MongoDB `$group/$sum` |
-
-## Nginx
+Create and retrieve a post while local authentication is disabled:
 
 ```bash
-nginx -t -c deploy/nginx/nginx.conf            # validar sintaxis
-sudo cp deploy/nginx/nginx.conf /etc/nginx/conf.d/default.conf
-sudo nginx -s reload
+post_id="$(curl --fail --silent --show-error \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Hello C++","author":"writer","content":"First post","tags":["cpp"]}' \
+  http://127.0.0.1:8080/posts | sed -E 's/.*"id":"([^"]+)".*/\1/')"
+curl --fail --silent --show-error "http://127.0.0.1:8080/posts/${post_id}"
 ```
 
-Incluye configs para reverse proxy, load balancing (round robin / least_conn / ip_hash)
-y HTTPS con rate limiting y cabeceras de seguridad.
+For an authenticated run, copy `.env.example`, provide unique tokens of at least 32
+characters, export the values, and set `AUTH_REQUIRED=true`. Never commit `.env` or
+real credentials. See [Configuration](CONFIGURATION.md) and [Security](SECURITY.md).
 
-## Docker
+## Docker Compose
 
 ```bash
-docker compose up --build
-# HTTP:  http://localhost:8080   (vía Nginx: http://localhost/)
-# gRPC:  localhost:50051
-
-# Verificación aislada de toda la pila y del flujo CRUD
+docker compose up --build --detach --wait
+curl --fail http://localhost:8080/ready
 ./scripts/smoke_test.sh
+docker compose down
 ```
 
-## AWS (Elastic Beanstalk)
+Compose exposes HTTP directly at `http://localhost:8080`, through Nginx at
+`http://localhost`, and gRPC at `localhost:50051`. MongoDB and the gRPC metrics port
+remain private to the Compose network.
 
-1. `zip -r app.zip . -x build/*`
-2. Consola AWS → Elastic Beanstalk → nueva aplicación → subir `app.zip`
-3. La config `deploy/aws/beanstalk.config` y `Procfile` arrancan el servidor HTTP.
-   Provisione un MongoDB (Atlas o EC2) y ajuste `MONGODB_URI`.
+## API Summary
 
-## CI/CD
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Process liveness |
+| `GET` | `/ready` | MongoDB-aware readiness |
+| `GET` | `/metrics` | Prometheus metrics |
+| `GET` | `/posts` | Filtered, paginated post list |
+| `POST` | `/posts` | Create a post |
+| `GET` | `/posts/:id` | Read a post |
+| `PUT` | `/posts/:id` | Replace a post |
+| `DELETE` | `/posts/:id` | Delete a post |
+| `GET` | `/stats/posts-per-author` | Count posts grouped by author |
 
-- `.github/workflows/test.yml` — build + tests en Ubuntu con servicio MongoDB.
-- `.github/workflows/docker.yml` — publica la imagen Docker (requiere secrets
-  `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN`).
+The complete HTTP payloads, gRPC methods, authentication metadata, and error mapping
+are documented in [API.md](API.md).
 
-## Nota sobre el libro
+## CI/CD and Deployment
 
-Este proyecto reconstruye el backend que el libro describe solo a través de snippets
-(el repositorio oficial del libro no se publica en el PDF). Los nombres de clases,
-`.proto` y operaciones siguen fielmente los ejemplos de los capítulos 5–11.
+The `C++ CI` workflow runs formatting, strict builds, unit and integration tests,
+sanitizers, static analysis, coverage, security scans, and a container smoke test.
+After a successful push build, the publication workflow scans and publishes immutable
+`sha-<commit>` images to GHCR with an SBOM and provenance attestation.
+
+AWS deployment templates target separate HTTP and gRPC services on ECS Fargate. They
+are templates only: no live AWS environment is provisioned by this repository. See
+[Release and Rollback](RELEASE.md) before deploying.
+
+## Project Origin
+
+The book presents the backend as chapter-level snippets rather than one integrated
+application. This repository retains the core class, protocol, and operation ideas
+from chapters 5–11 while adding the production boundaries and verification required
+to run them together.

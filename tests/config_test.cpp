@@ -8,10 +8,8 @@
 
 namespace {
 
-blog::config::EnvironmentReader Reader(
-    std::unordered_map<std::string, std::string> values) {
-  return [values = std::move(values)](const std::string& name)
-             -> std::optional<std::string> {
+blog::config::EnvironmentReader Reader(std::unordered_map<std::string, std::string> values) {
+  return [values = std::move(values)](const std::string& name) -> std::optional<std::string> {
     const auto found = values.find(name);
     if (found == values.end()) return std::nullopt;
     return found->second;
@@ -30,6 +28,8 @@ TEST(AppConfigTest, UsesDocumentedDefaults) {
   EXPECT_EQ(config.cache_ttl_seconds, 60);
   EXPECT_EQ(config.mongo_min_pool_size, 1);
   EXPECT_EQ(config.mongo_max_pool_size, 20);
+  EXPECT_FALSE(config.auth_required);
+  EXPECT_EQ(config.rate_limit_per_minute, 60);
 }
 
 TEST(AppConfigTest, ReadsEnvironmentOverrides) {
@@ -46,6 +46,11 @@ TEST(AppConfigTest, ReadsEnvironmentOverrides) {
       {"MONGO_MIN_POOL_SIZE", "2"},
       {"MONGO_MAX_POOL_SIZE", "40"},
       {"SHUTDOWN_GRACE_SECONDS", "15"},
+      {"AUTH_REQUIRED", "true"},
+      {"BLOG_WRITER_TOKEN", "a-writer-token-that-is-at-least-32-characters"},
+      {"PROTECT_READ_ENDPOINTS", "true"},
+      {"RATE_LIMIT_PER_MINUTE", "25"},
+      {"CORS_ALLOWED_ORIGIN", "https://example.com"},
   }));
   EXPECT_EQ(config.mongodb_uri, "mongodb://mongo:27017");
   EXPECT_EQ(config.database_name, "custom_blog");
@@ -59,6 +64,9 @@ TEST(AppConfigTest, ReadsEnvironmentOverrides) {
   EXPECT_EQ(config.mongo_min_pool_size, 2);
   EXPECT_EQ(config.mongo_max_pool_size, 40);
   EXPECT_EQ(config.shutdown_grace_seconds, 15);
+  EXPECT_TRUE(config.auth_required);
+  EXPECT_TRUE(config.protect_read_endpoints);
+  EXPECT_EQ(config.rate_limit_per_minute, 25);
 }
 
 TEST(AppConfigTest, RejectsInvalidNumericEnvironmentValue) {
@@ -66,12 +74,23 @@ TEST(AppConfigTest, RejectsInvalidNumericEnvironmentValue) {
                std::invalid_argument);
   EXPECT_THROW(blog::config::LoadFromEnvironment(Reader({{"PORT", "70000"}})),
                std::invalid_argument);
-  EXPECT_THROW(
-      blog::config::LoadFromEnvironment(Reader({{"CACHE_CAPACITY", "-1"}})),
-      std::invalid_argument);
+  EXPECT_THROW(blog::config::LoadFromEnvironment(Reader({{"CACHE_CAPACITY", "-1"}})),
+               std::invalid_argument);
   EXPECT_THROW(blog::config::LoadFromEnvironment(Reader({
                    {"MONGO_MIN_POOL_SIZE", "10"},
                    {"MONGO_MAX_POOL_SIZE", "5"},
+               })),
+               std::invalid_argument);
+  EXPECT_THROW(blog::config::LoadFromEnvironment(Reader({
+                   {"AUTH_REQUIRED", "true"},
+               })),
+               std::invalid_argument);
+  EXPECT_THROW(blog::config::LoadFromEnvironment(Reader({
+                   {"BLOG_WRITER_TOKEN", "short"},
+               })),
+               std::invalid_argument);
+  EXPECT_THROW(blog::config::LoadFromEnvironment(Reader({
+                   {"TLS_CERTIFICATE_FILE", "/tmp/cert.pem"},
                })),
                std::invalid_argument);
 }
