@@ -2,7 +2,7 @@ name: Publish verified container
 
 on:
   workflow_run:
-    workflows: ["C++ CI"]
+    workflows: ["CMake CI"]
     types: [completed]
     branches: [main, master]
 
@@ -23,7 +23,7 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false

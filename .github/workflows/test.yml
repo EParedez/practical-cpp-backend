@@ -1,4 +1,4 @@
-name: C++ CI
+name: CMake CI
 
 on:
   push:
@@ -12,21 +12,22 @@ permissions:
 env:
   DEBIAN_FRONTEND: noninteractive
   MONGO_CXX_DRIVER_PREFIX: /home/runner/.local/mongo-cxx-driver
+  LD_LIBRARY_PATH: /home/runner/.local/mongo-cxx-driver/lib
 
 jobs:
   format:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
       - name: Verify C++ formatting
-        run: >-
-          clang-format --dry-run --Werror
-          $(find src tests -type f \( -name '*.cpp' -o -name '*.h' \)
-          ! -path 'src/server/httplib.h')
+        run: |
+          find src tests -type f \( -name '*.cpp' -o -name '*.h' \) \
+            ! -path 'src/server/httplib.h' -print0 \
+            | xargs -0 clang-format --dry-run --Werror
 
   unit:
     name: Unit and strict build (${{ matrix.os }})
@@ -36,7 +37,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install dependencies
@@ -44,7 +45,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake git libmongoc-dev libssl-dev \
             libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: /home/runner/.local/mongo-cxx-driver
           key: mongo-cxx-driver-4.5.0-${{ matrix.os }}-${{ runner.arch }}
@@ -71,7 +72,7 @@ jobs:
           --health-cmd "mongosh --quiet --eval 'quit(db.adminCommand(\"ping\").ok ? 0 : 1)'"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install dependencies
@@ -79,7 +80,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake git libmongoc-dev libssl-dev \
             libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: /home/runner/.local/mongo-cxx-driver
           key: mongo-cxx-driver-4.5.0-ubuntu-24.04-${{ runner.arch }}
@@ -96,7 +97,7 @@ jobs:
   sanitizer:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install dependencies
@@ -104,7 +105,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang git libmongoc-dev libssl-dev \
             libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: /home/runner/.local/mongo-cxx-driver
           key: mongo-cxx-driver-4.5.0-ubuntu-24.04-${{ runner.arch }}
@@ -124,7 +125,7 @@ jobs:
   coverage-and-analysis:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install dependencies
@@ -132,7 +133,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake clang-tidy git lcov libmongoc-dev libssl-dev \
             libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: /home/runner/.local/mongo-cxx-driver
           key: mongo-cxx-driver-4.5.0-ubuntu-24.04-${{ runner.arch }}
@@ -151,7 +152,7 @@ jobs:
             --ignore-errors mismatch
           lcov --remove coverage.info '/usr/*' '*/build/*' '*/tests/*' \
             --output-file coverage.info --ignore-errors unused
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cpp-coverage
           path: coverage.info
@@ -160,7 +161,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [unit, integration, sanitizer]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Build and smoke test without publishing
@@ -187,7 +188,7 @@ jobs:
             slug: ubuntu-22.04-amd64
             ubuntu-version: "22.04"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: docker/setup-qemu-action@v4
@@ -223,7 +224,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/dependency-review-action@v4
@@ -231,8 +232,11 @@ jobs:
   secret-scan:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LOG_OPTS: --all
